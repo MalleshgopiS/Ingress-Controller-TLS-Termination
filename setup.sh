@@ -1,39 +1,37 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "=========================================="
-echo "Ingress TLS Memory Leak — Setup"
-echo "=========================================="
+NS=ingress-system
 
-NAMESPACE=ingress-system
+echo "Setting up TLS memory leak scenario..."
 
-kubectl create namespace $NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
+kubectl create namespace $NS --dry-run=client -o yaml | kubectl apply -f -
 
-############################################
-# Broken NGINX ConfigMap (TLS leak)
-############################################
+#################################
+# Broken TLS configuration
+#################################
 
 cat <<EOF | kubectl apply -f -
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: ingress-nginx-config
-  namespace: $NAMESPACE
+  namespace: $NS
 data:
   ssl-session-cache: "shared:SSL:1m"
-  ssl-session-timeout: "0"   # BROKEN: never expires
+  ssl-session-timeout: "0"
 EOF
 
-############################################
+#################################
 # Ingress Controller Deployment
-############################################
+#################################
 
 cat <<EOF | kubectl apply -f -
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: ingress-controller
-  namespace: $NAMESPACE
+  namespace: $NS
 spec:
   replicas: 1
   selector:
@@ -53,11 +51,6 @@ spec:
           requests:
             memory: "128Mi"
         env:
-        - name: SSL_SESSION_CACHE
-          valueFrom:
-            configMapKeyRef:
-              name: ingress-nginx-config
-              key: ssl-session-cache
         - name: SSL_SESSION_TIMEOUT
           valueFrom:
             configMapKeyRef:
@@ -75,14 +68,14 @@ spec:
           fi
 EOF
 
-############################################
-# Save UID for anti-cheat
-############################################
+#################################
+# Save Deployment UID (anti-cheat)
+#################################
 
-UID=$(kubectl get deployment ingress-controller \
-  -n $NAMESPACE -o jsonpath='{.metadata.uid}')
+mkdir -p /workspace/grader
 
-mkdir -p /grader
-echo "$UID" > /grader/original-uid
+kubectl get deployment ingress-controller -n $NS \
+  -o jsonpath='{.metadata.uid}' \
+  > /workspace/grader/original_uid
 
 echo "Setup complete."

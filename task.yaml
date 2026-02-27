@@ -1,41 +1,36 @@
-name: ingress-tls-memory-leak
-category: Incident Response & Troubleshooting
+id: ingress-tls-memory-leak
+title: Ingress Controller TLS Termination Memory Leak Causing Periodic Gateway Crashes
+category: incident-response
 difficulty: hard
 horizon: short
 
 description: |
-  The cluster ingress gateway is crashing periodically.
+  The ingress controller crashes every 4–6 hours.
 
-  Every 4–6 hours the ingress controller restarts unexpectedly.
-  Services become temporarily unavailable during these crashes.
+  Investigation shows:
+    - Pods terminated with OOMKilled
+    - Memory steadily increases over time
+    - TLS termination is enabled
+    - TLS sessions never expire
 
-  Investigation notes:
-  - Pods show OOMKilled events
-  - Memory usage increases steadily over time
-  - TLS termination is enabled on the ingress controller
-  - TLS session reuse is heavily utilized in production traffic
+  Root cause is a TLS session cache configuration leak.
 
-  Your task:
+  You must:
 
-  Identify and fix the root cause of the ingress controller memory leak
-  without masking the issue.
-
-  You MUST:
-  - Fix the configuration causing the TLS session cache leak
-  - Ensure ingress controller stabilizes
-  - Preserve the existing Deployment (do NOT delete/recreate)
-  - Do NOT increase memory limits as a workaround
-  - Do NOT disable TLS
+    • Fix the TLS session cache configuration
+    • Stabilize the ingress controller
+    • Preserve the existing Deployment
+    • Keep TLS enabled
+    • Do NOT increase memory limits
 
 success_criteria:
-  - Ingress pod is Running and Ready
-  - No OOMKilled events remain
-  - TLS session cache configuration is corrected
-  - Memory limit unchanged from original
-  - Deployment UID preserved
+  - Deployment UID unchanged
+  - Memory limit remains 128Mi
+  - TLS session timeout corrected
+  - Pod becomes Ready
+  - No new OOM restarts occur
 
 constraints:
-  - Do not delete the Deployment
-  - Do not scale to zero and recreate
+  - Do not delete Deployment
   - Do not change container image
-  - Do not modify grader artifacts
+  - Do not modify grader.py
