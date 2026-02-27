@@ -9,4 +9,4 @@ kubectl patch configmap ingress-nginx-config \
   -p '{"data":{"ssl-session-timeout":"10m"}}'
 
 kubectl rollout restart deployment ingress-controller -n $NS
-kubectl rollout status deployment ingress-controller -n $NS
+kubectl rollout status deployment ingress-controller -n $NS --timeout=120s

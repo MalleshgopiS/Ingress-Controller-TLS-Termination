@@ -1,77 +1,71 @@
-import subprocess, json, time
+import subprocess
+import json
+import time
+import re
 
 NS="ingress-system"
 DEPLOY="ingress-controller"
 
-
 def run(cmd):
-    return subprocess.check_output(cmd, shell=True, text=True).strip()
+    try:
+        return subprocess.check_output(cmd, shell=True, text=True).strip()
+    except:
+        return ""
 
-
+# -----------------------------
+# UID must remain unchanged
+# -----------------------------
 def check_uid():
-    """Deployment must not be recreated."""
     original=open("/grader/original_uid").read().strip()
-    current=run(
-        f"kubectl get deploy {DEPLOY} -n {NS} "
-        "-o jsonpath='{.metadata.uid}'")
+    current=run(f"kubectl get deploy {DEPLOY} -n {NS} -o jsonpath='{{.metadata.uid}}'")
     return original==current
 
-
+# -----------------------------
+# Memory unchanged
+# -----------------------------
 def check_memory():
-    """Memory limit must remain unchanged."""
-    mem=run(
-        f"kubectl get deploy {DEPLOY} -n {NS} "
-        "-o jsonpath='{.spec.template.spec.containers[0].resources.limits.memory}'")
+    mem=run(f"kubectl get deploy {DEPLOY} -n {NS} -o jsonpath='{{.spec.template.spec.containers[0].resources.limits.memory}}'")
     return mem=="128Mi"
 
-
+# -----------------------------
+# Image unchanged
+# -----------------------------
 def check_image():
-    """Container image must not change."""
-    img=run(
-        f"kubectl get deploy {DEPLOY} -n {NS} "
-        "-o jsonpath='{.spec.template.spec.containers[0].image}'")
+    img=run(f"kubectl get deploy {DEPLOY} -n {NS} -o jsonpath='{{.spec.template.spec.containers[0].image}}'")
     return img=="nginx:1.25"
 
-
+# -----------------------------
+# STRICT timeout validation
+# -----------------------------
 def check_timeout():
-    """TLS sessions must expire within reasonable bounds."""
-    timeout=run(
-        f"kubectl get configmap ingress-nginx-config -n {NS} "
-        "-o jsonpath='{.data.ssl-session-timeout}'")
+    timeout=run(f"kubectl get cm ingress-nginx-config -n {NS} -o jsonpath='{{.data.ssl-session-timeout}}'")
 
     if timeout=="0":
         return False
 
-    return timeout.endswith("m") or timeout.endswith("s")
+    m=re.match(r'^([1-9][0-9]*)([sm])$', timeout)
+    return m is not None
 
-
+# -----------------------------
+# Deployment ready
+# -----------------------------
 def check_ready():
-    """Deployment must become Ready."""
     for _ in range(30):
-        ready=run(
-            f"kubectl get deploy {DEPLOY} -n {NS} "
-            "-o jsonpath='{.status.readyReplicas}'")
+        ready=run(f"kubectl get deploy {DEPLOY} -n {NS} -o jsonpath='{{.status.readyReplicas}}'")
         if ready and int(ready)>0:
             return True
         time.sleep(2)
     return False
 
-
+# -----------------------------
+# No new OOM restarts
+# -----------------------------
 def check_no_oom():
-    """No new OOM restarts."""
-    pod=run(f"kubectl get pods -n {NS} -o jsonpath='{{.items[0].metadata.name}}'")
-    baseline=int(run(
-        f"kubectl get pod {pod} -n {NS} "
-        "-o jsonpath='{.status.containerStatuses[0].restartCount}'"))
-
+    pod=run(f"kubectl get pods -n {NS} -l app=ingress-controller -o jsonpath='{{.items[0].metadata.name}}'")
+    before=run(f"kubectl get pod {pod} -n {NS} -o jsonpath='{{.status.containerStatuses[0].restartCount}}'")
     time.sleep(30)
-
-    current=int(run(
-        f"kubectl get pod {pod} -n {NS} "
-        "-o jsonpath='{.status.containerStatuses[0].restartCount}'"))
-
-    return current==baseline
-
+    after=run(f"kubectl get pod {pod} -n {NS} -o jsonpath='{{.status.containerStatuses[0].restartCount}}'")
+    return before==after
 
 checks=[
     check_uid(),
@@ -79,9 +73,8 @@ checks=[
     check_image(),
     check_timeout(),
     check_ready(),
-    check_no_oom()
+    check_no_oom(),
 ]
 
 score=sum(checks)/len(checks)
-
 print(json.dumps({"score":score}))

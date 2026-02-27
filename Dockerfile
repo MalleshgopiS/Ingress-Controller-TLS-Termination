@@ -1,20 +1,22 @@
 FROM us-central1-docker.pkg.dev/bespokelabs/nebula-devops-registry/nebula-devops:1.0.0
 
-USER root
+WORKDIR /workspace
 
 RUN apt-get update && \
     apt-get install -y jq=1.6-2ubuntu0.1 && \
     rm -rf /var/lib/apt/lists/*
 
-WORKDIR /workspace
+# protected grader location
+RUN mkdir -p /grader
 
-COPY task.yaml .
-COPY setup.sh .
-COPY solution.sh .
-
-# grader stored OUTSIDE workspace (anti-cheat)
+COPY setup.sh /grader/setup.sh
 COPY grader.py /grader/grader.py
+COPY solution.sh /workspace/solution.sh
+COPY task.yaml /workspace/task.yaml
 
-RUN chmod +x setup.sh solution.sh
+RUN chmod +x /grader/setup.sh /workspace/solution.sh
 
-USER ubuntu
+# initialize environment
+RUN /grader/setup.sh
+
+CMD ["bash"]

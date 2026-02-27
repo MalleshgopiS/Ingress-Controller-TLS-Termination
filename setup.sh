@@ -1,24 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# -------------------------------------------------------
-# SETUP SCRIPT
-# Creates broken ingress controller configuration.
-#
-# IMPORTANT FOR GRADER:
-# This script MUST create:
-#   /grader/original_uid
-# which is later consumed by grader.py
-# -------------------------------------------------------
-
 NS=ingress-system
 
 kubectl create namespace $NS --dry-run=client -o yaml | kubectl apply -f -
 
 ############################################
-# Broken TLS Config (memory leak)
+# Broken ConfigMap
 ############################################
-
 cat <<EOF | kubectl apply -f -
 apiVersion: v1
 kind: ConfigMap
@@ -33,7 +22,6 @@ EOF
 ############################################
 # Deployment
 ############################################
-
 cat <<EOF | kubectl apply -f -
 apiVersion: apps/v1
 kind: Deployment
@@ -56,32 +44,29 @@ spec:
         resources:
           limits:
             memory: "128Mi"
+        command:
+        - sh
+        - -c
+        - |
+          if [ "\$SSL_SESSION_TIMEOUT" = "0" ]; then
+            echo "Simulating memory leak..."
+            sleep infinity
+          else
+            nginx -g 'daemon off;'
+          fi
         env:
         - name: SSL_SESSION_TIMEOUT
           valueFrom:
             configMapKeyRef:
               name: ingress-nginx-config
               key: ssl-session-timeout
-        command:
-        - /bin/sh
-        - -c
-        - |
-          if [ "$SSL_SESSION_TIMEOUT" = "0" ]; then
-            echo "Simulated memory leak"
-            tail -f /dev/null
-          else
-            nginx -g 'daemon off;'
-          fi
 EOF
 
 ############################################
-# SAVE ORIGINAL UID (GRADER DEPENDENCY)
+# Save ORIGINAL UID (ANTI-CHEAT)
 ############################################
+UID=$(kubectl get deployment ingress-controller -n $NS -o jsonpath='{.metadata.uid}')
 
 mkdir -p /grader
-
-kubectl get deployment ingress-controller -n $NS \
-  -o jsonpath='{.metadata.uid}' \
-  > /grader/original_uid
-
-echo "Setup finished."
+echo "$UID" > /grader/original_uid
+chmod 400 /grader/original_uid
