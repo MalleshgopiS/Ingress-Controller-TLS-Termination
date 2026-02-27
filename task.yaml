@@ -1,0 +1,29 @@
+id: ingress-tls-memory-leak
+title: Ingress Controller TLS Termination Memory Leak Causing Periodic Gateway Crashes
+category: site-reliability-engineering
+difficulty: hard
+horizon: short
+
+description: |
+  External HTTPS traffic intermittently fails because the ingress-nginx
+  controller pod is OOMKilled every few hours.
+
+  Memory usage grows continuously due to TLS session cache misconfiguration.
+
+  Your task:
+    - Diagnose ingress instability
+    - Stabilize memory usage
+    - Prevent OOMKills
+    - Keep TLS enabled
+    - Add a Prometheus alert when ingress memory exceeds 80% of limit
+
+constraints:
+  - Do not scale replicas to bypass the issue
+  - Do not disable TLS
+  - Do not modify grader files
+
+success_criteria:
+  - Ingress pod does not restart during validation window
+  - HTTPS endpoint consistently returns HTTP 200
+  - Memory no longer grows unbounded
+  - Alert rule exists and is active
