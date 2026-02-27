@@ -1,76 +1,51 @@
 import subprocess
 import json
 import time
-import sys
 
+NS = "ingress-system"
+DEPLOY = "ingress-controller"
 
 def run(cmd):
-    return subprocess.check_output(cmd, shell=True).decode().strip()
-
-
-def ingress_pod():
-    data=json.loads(run("kubectl get pods -n ingress-nginx -o json"))
-    for p in data["items"]:
-        if "ingress-nginx-controller" in p["metadata"]["name"]:
-            return p["metadata"]["name"]
-    return None
-
-
-def restart_count(pod):
-    data=json.loads(
-        run(f"kubectl get pod {pod} -n ingress-nginx -o json"))
-    return data["status"]["containerStatuses"][0]["restartCount"]
-
-
-def https_ok():
     try:
-        code=run(
-          "curl -k -s -o /dev/null -w '%{http_code}' https://bleater.devops.local/")
-        return code=="200"
+        return subprocess.check_output(cmd, shell=True, text=True).strip()
     except:
-        return False
+        return ""
 
+def check_uid():
+    original = open("/grader/original-uid").read().strip()
+    current = run(f"kubectl get deployment {DEPLOY} -n {NS} -o jsonpath='{{.metadata.uid}}'")
+    return original == current
 
-def alert_exists():
-    try:
-        out=run("kubectl get prometheusrules -A")
-        return "IngressMemoryHigh" in out
-    except:
-        return False
+def check_memory_unchanged():
+    mem = run(f"kubectl get deployment {DEPLOY} -n {NS} "
+              "-o jsonpath='{.spec.template.spec.containers[0].resources.limits.memory}'")
+    return mem == "128Mi"
 
+def check_timeout_fixed():
+    timeout = run(f"kubectl get configmap ingress-nginx-config -n {NS} "
+                  "-o jsonpath='{.data.ssl-session-timeout}'")
+    return timeout != "0"
 
-def wait_stable(pod, duration=180):
-    baseline=restart_count(pod)
-    start=time.time()
+def check_running():
+    for _ in range(20):
+        ready = run(f"kubectl get deployment {DEPLOY} -n {NS} "
+                    "-o jsonpath='{.status.readyReplicas}'")
+        if ready and int(ready) > 0:
+            return True
+        time.sleep(2)
+    return False
 
-    while time.time()-start < duration:
-        if restart_count(pod) > baseline:
-            return False
-        if not https_ok():
-            return False
-        time.sleep(5)
+def check_no_oom():
+    events = run(f"kubectl get events -n {NS} --field-selector reason=OOMKilled")
+    return "OOMKilled" not in events
 
-    return True
+checks = [
+    check_uid(),
+    check_memory_unchanged(),
+    check_timeout_fixed(),
+    check_running(),
+    check_no_oom(),
+]
 
-
-def main():
-    pod=ingress_pod()
-
-    if not pod:
-        print("FAIL: ingress pod missing")
-        sys.exit(1)
-
-    if not wait_stable(pod):
-        print("FAIL: ingress unstable")
-        sys.exit(1)
-
-    if not alert_exists():
-        print("FAIL: alert rule missing")
-        sys.exit(1)
-
-    print("PASS")
-    sys.exit(0)
-
-
-if __name__ == "__main__":
-    main()
+score = sum(checks) / len(checks)
+print(json.dumps({"score": score}))

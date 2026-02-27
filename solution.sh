@@ -1,3 +1,18 @@
-#!/bin/bash
-# Intentionally empty.
-# The agent must repair the system manually.
+#!/usr/bin/env bash
+set -euo pipefail
+
+NS=ingress-system
+
+echo "Fixing TLS session timeout..."
+
+kubectl patch configmap ingress-nginx-config \
+  -n $NS \
+  --type merge \
+  -p '{"data":{"ssl-session-timeout":"10m"}}'
+
+echo "Restarting deployment..."
+
+kubectl rollout restart deployment ingress-controller -n $NS
+kubectl rollout status deployment ingress-controller -n $NS --timeout=120s
+
+echo "Fix complete."

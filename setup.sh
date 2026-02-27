@@ -1,83 +1,88 @@
-#!/bin/bash
-set -e
+#!/usr/bin/env bash
+set -euo pipefail
 
-echo "Injecting ingress TLS memory leak..."
+echo "=========================================="
+echo "Ingress TLS Memory Leak — Setup"
+echo "=========================================="
 
-########################################
-# BAD TLS CONFIG (was manifests/bad-ingress-config.yaml)
-########################################
-kubectl patch configmap ingress-nginx-controller \
-  -n ingress-nginx \
-  --type merge \
-  -p '{"data":{
-      "ssl-session-cache":"shared:SSL:150m",
-      "ssl-session-timeout":"24h"
-  }}'
+NAMESPACE=ingress-system
 
-########################################
-# REMOVE MEMORY LIMIT
-########################################
-kubectl patch deployment ingress-nginx-controller \
-  -n ingress-nginx \
-  --type merge \
-  -p '{"spec":{"template":{"spec":{"containers":[
-      {"name":"controller","resources":{"requests":{"memory":"128Mi"}}}
-  ]}}}}'
+kubectl create namespace $NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
 
-########################################
-# TLS TRAFFIC GENERATOR
-########################################
+############################################
+# Broken NGINX ConfigMap (TLS leak)
+############################################
+
+cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ingress-nginx-config
+  namespace: $NAMESPACE
+data:
+  ssl-session-cache: "shared:SSL:1m"
+  ssl-session-timeout: "0"   # BROKEN: never expires
+EOF
+
+############################################
+# Ingress Controller Deployment
+############################################
+
 cat <<EOF | kubectl apply -f -
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: tls-traffic
+  name: ingress-controller
+  namespace: $NAMESPACE
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: tls-traffic
+      app: ingress-controller
   template:
     metadata:
       labels:
-        app: tls-traffic
+        app: ingress-controller
     spec:
       containers:
-      - name: curl
-        image: curlimages/curl
+      - name: nginx
+        image: nginx:1.25
+        resources:
+          limits:
+            memory: "128Mi"
+          requests:
+            memory: "128Mi"
+        env:
+        - name: SSL_SESSION_CACHE
+          valueFrom:
+            configMapKeyRef:
+              name: ingress-nginx-config
+              key: ssl-session-cache
+        - name: SSL_SESSION_TIMEOUT
+          valueFrom:
+            configMapKeyRef:
+              name: ingress-nginx-config
+              key: ssl-session-timeout
         command:
         - /bin/sh
         - -c
         - |
-          while true; do
-            curl -k https://bleater.devops.local >/dev/null 2>&1
-            sleep 0.2
-          done
+          if [ "$SSL_SESSION_TIMEOUT" = "0" ]; then
+            echo "Simulating memory leak..."
+            tail -f /dev/null
+          else
+            nginx -g 'daemon off;'
+          fi
 EOF
 
-########################################
-# ALERT RULE (was monitoring/alert-rule.yaml)
-########################################
-cat <<EOF | kubectl apply -f -
-apiVersion: monitoring.coreos.com/v1
-kind: PrometheusRule
-metadata:
-  name: ingress-memory-alert
-  namespace: monitoring
-spec:
-  groups:
-  - name: ingress-alerts
-    rules:
-    - alert: IngressMemoryHigh
-      expr: container_memory_working_set_bytes{pod=~"ingress-nginx-controller.*"} > 400000000
-      for: 1m
-      labels:
-        severity: critical
-EOF
+############################################
+# Save UID for anti-cheat
+############################################
 
-########################################
+UID=$(kubectl get deployment ingress-controller \
+  -n $NAMESPACE -o jsonpath='{.metadata.uid}')
 
-kubectl rollout restart deployment ingress-nginx-controller -n ingress-nginx
-kubectl rollout status deployment ingress-nginx-controller -n ingress-nginx
+mkdir -p /grader
+echo "$UID" > /grader/original-uid
 
-echo "Fault injection complete."
+echo "Setup complete."
