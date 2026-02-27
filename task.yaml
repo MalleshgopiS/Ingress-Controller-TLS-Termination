@@ -5,25 +5,19 @@ difficulty: hard
 horizon: short
 
 description: |
-  External HTTPS traffic intermittently fails because the ingress-nginx
-  controller pod is OOMKilled every few hours.
+  The ingress-nginx controller periodically crashes due to
+  unbounded TLS session cache growth causing memory exhaustion.
 
-  Memory usage grows continuously due to TLS session cache misconfiguration.
+  External HTTPS requests intermittently fail.
 
-  Your task:
-    - Diagnose ingress instability
-    - Stabilize memory usage
-    - Prevent OOMKills
-    - Keep TLS enabled
-    - Add a Prometheus alert when ingress memory exceeds 80% of limit
-
-constraints:
-  - Do not scale replicas to bypass the issue
-  - Do not disable TLS
-  - Do not modify grader files
+  Diagnose and stabilize ingress without:
+    - disabling TLS
+    - scaling replicas
+    - modifying grader assets
 
 success_criteria:
-  - Ingress pod does not restart during validation window
-  - HTTPS endpoint consistently returns HTTP 200
-  - Memory no longer grows unbounded
-  - Alert rule exists and is active
+  - ingress controller does not restart
+  - HTTPS endpoint consistently returns 200
+  - TLS remains enabled
+  - memory leak mitigated
+  - alert rule created
