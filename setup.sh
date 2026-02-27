@@ -3,8 +3,6 @@ set -euo pipefail
 
 NS=ingress-system
 
-echo "Setting up TLS memory leak scenario..."
-
 kubectl create namespace $NS --dry-run=client -o yaml | kubectl apply -f -
 
 #################################
@@ -23,7 +21,7 @@ data:
 EOF
 
 #################################
-# Ingress Controller Deployment
+# Deployment
 #################################
 
 cat <<EOF | kubectl apply -f -
@@ -69,13 +67,11 @@ spec:
 EOF
 
 #################################
-# Save Deployment UID (anti-cheat)
+# Store original UID securely
 #################################
 
-mkdir -p /workspace/grader
+mkdir -p /grader
 
 kubectl get deployment ingress-controller -n $NS \
   -o jsonpath='{.metadata.uid}' \
-  > /workspace/grader/original_uid
-
-echo "Setup complete."
+  > /grader/original_uid

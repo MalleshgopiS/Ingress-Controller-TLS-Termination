@@ -3,7 +3,7 @@ FROM us-central1-docker.pkg.dev/bespokelabs/nebula-devops-registry/nebula-devops
 USER root
 
 RUN apt-get update && \
-    apt-get install -y jq=1.6-2.1ubuntu3 && \
+    apt-get install -y jq && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /workspace

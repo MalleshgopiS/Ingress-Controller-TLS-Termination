@@ -8,7 +8,7 @@ def run(cmd):
     return subprocess.check_output(cmd, shell=True, text=True).strip()
 
 
-def get_pod_name():
+def get_pod():
     pods=json.loads(run(f"kubectl get pods -n {NS} -o json"))
     for p in pods["items"]:
         if "ingress-controller" in p["metadata"]["name"]:
@@ -16,20 +16,14 @@ def get_pod_name():
     return None
 
 
-# -----------------------------
-# UID must remain unchanged
-# -----------------------------
 def check_uid():
-    original=open("/workspace/grader/original_uid").read().strip()
+    original=open("/grader/original_uid").read().strip()
     current=run(
         f"kubectl get deployment {DEPLOY} -n {NS} "
         "-o jsonpath='{.metadata.uid}'")
     return original==current
 
 
-# -----------------------------
-# Memory limit unchanged
-# -----------------------------
 def check_memory():
     mem=run(
         f"kubectl get deploy {DEPLOY} -n {NS} "
@@ -37,9 +31,6 @@ def check_memory():
     return mem=="128Mi"
 
 
-# -----------------------------
-# TLS timeout fixed
-# -----------------------------
 def check_timeout():
     timeout=run(
         f"kubectl get configmap ingress-nginx-config -n {NS} "
@@ -47,9 +38,6 @@ def check_timeout():
     return timeout!="0"
 
 
-# -----------------------------
-# Deployment Ready
-# -----------------------------
 def check_ready():
     for _ in range(30):
         ready=run(
@@ -61,11 +49,8 @@ def check_ready():
     return False
 
 
-# -----------------------------
-# Deterministic OOM validation
-# -----------------------------
 def check_no_recent_oom():
-    pod=get_pod_name()
+    pod=get_pod()
     if not pod:
         return False
 
@@ -74,7 +59,7 @@ def check_no_recent_oom():
         "-o jsonpath='{.status.containerStatuses[0].restartCount}'"))
 
     start=time.time()
-    while time.time()-start < 20:
+    while time.time()-start < 30:
         current=int(run(
             f"kubectl get pod {pod} -n {NS} "
             "-o jsonpath='{.status.containerStatuses[0].restartCount}'"))
