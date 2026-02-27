@@ -1,41 +1,63 @@
 id: ingress-tls-memory-leak
+
 title: Ingress Controller TLS Termination Memory Leak Causing Periodic Gateway Crashes
+
 category: incident-response
 difficulty: hard
 horizon: short
 
 description: |
-  The ingress controller crashes periodically due to a memory leak.
+  The cluster ingress controller is experiencing periodic crashes
+  approximately every 4–6 hours.
 
   Investigation findings:
-    • Pods are OOMKilled
-    • Memory usage grows continuously
+
+    • Pods are being OOMKilled
+    • Memory usage steadily increases over time
     • TLS termination is enabled
+    • TLS session reuse is heavily utilized
     • TLS sessions never expire
 
-  The TLS session cache timeout is misconfigured.
+  The issue is caused by a misconfigured TLS session cache timeout
+  in the ConfigMap named:
 
-  A ConfigMap named:
       ingress-nginx-config
 
-  contains an invalid setting causing sessions to never expire.
+  The field `ssl-session-timeout` is incorrectly set to a value
+  that prevents session expiration.
 
-  You must:
+  This results in unbounded memory growth and eventual OOM crashes.
 
-    - Fix the TLS session cache configuration
-    - Stabilize the ingress controller
-    - Preserve the existing Deployment
-    - Keep TLS enabled
-    - Do NOT increase memory limits
+  Your task is to diagnose and fix the configuration issue.
+
+requirements: |
+  You MUST:
+
+    • Correct the TLS session timeout configuration
+    • Stabilize the ingress controller
+    • Preserve the existing Deployment resource
+    • Keep TLS enabled
+    • Keep the memory limit unchanged (128Mi)
 
 success_criteria:
-  - Deployment UID unchanged
-  - Memory limit remains 128Mi
-  - ConfigMap ssl-session-timeout is corrected
+  - Deployment UID remains unchanged
+  - Memory limit remains exactly 128Mi
+  - Container image remains nginx:1.25
+  - ConfigMap ssl-session-timeout is corrected (not "0")
   - Deployment becomes Ready
-  - No new OOM restarts occur
+  - No new OOM restarts occur during validation window
 
 constraints:
-  - Do not delete Deployment
-  - Do not change container image
-  - Do not modify grader.py
+  - Do NOT delete or recreate the Deployment
+  - Do NOT change the container image
+  - Do NOT increase memory limits
+  - Do NOT disable TLS
+  - Do NOT modify grader.py
+
+notes: |
+  The correct fix involves updating the existing ConfigMap
+  and safely restarting the Deployment.
+
+  Deleting and recreating resources will fail validation.
+  Increasing memory limits will fail validation.
+  Disabling TLS will fail validation.

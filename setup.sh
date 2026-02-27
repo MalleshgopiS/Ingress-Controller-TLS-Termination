@@ -1,15 +1,23 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-NS=ingress-system
+# -------------------------------------------------------
+# SETUP SCRIPT
+# Creates broken ingress controller configuration.
+#
+# IMPORTANT FOR GRADER:
+# This script MUST create:
+#   /grader/original_uid
+# which is later consumed by grader.py
+# -------------------------------------------------------
 
-echo "Initializing ingress TLS memory leak scenario..."
+NS=ingress-system
 
 kubectl create namespace $NS --dry-run=client -o yaml | kubectl apply -f -
 
-##################################################
-# Broken TLS configuration (ROOT CAUSE)
-##################################################
+############################################
+# Broken TLS Config (memory leak)
+############################################
 
 cat <<EOF | kubectl apply -f -
 apiVersion: v1
@@ -22,9 +30,9 @@ data:
   ssl-session-timeout: "0"
 EOF
 
-##################################################
-# Ingress Controller Deployment
-##################################################
+############################################
+# Deployment
+############################################
 
 cat <<EOF | kubectl apply -f -
 apiVersion: apps/v1
@@ -48,8 +56,6 @@ spec:
         resources:
           limits:
             memory: "128Mi"
-          requests:
-            memory: "128Mi"
         env:
         - name: SSL_SESSION_TIMEOUT
           valueFrom:
@@ -61,19 +67,16 @@ spec:
         - -c
         - |
           if [ "$SSL_SESSION_TIMEOUT" = "0" ]; then
-            echo "Simulating memory leak..."
+            echo "Simulated memory leak"
             tail -f /dev/null
           else
             nginx -g 'daemon off;'
           fi
 EOF
 
-##################################################
-# REQUIRED BY GRADER
-# Save original Deployment UID
-##################################################
-
-echo "Saving deployment UID for grader validation..."
+############################################
+# SAVE ORIGINAL UID (GRADER DEPENDENCY)
+############################################
 
 mkdir -p /grader
 
@@ -81,4 +84,4 @@ kubectl get deployment ingress-controller -n $NS \
   -o jsonpath='{.metadata.uid}' \
   > /grader/original_uid
 
-echo "Setup complete."
+echo "Setup finished."
