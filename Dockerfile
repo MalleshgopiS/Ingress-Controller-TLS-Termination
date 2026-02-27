@@ -6,17 +6,18 @@ RUN apt-get update && \
     apt-get install -y jq=1.6-2ubuntu0.1 && \
     rm -rf /var/lib/apt/lists/*
 
-# protected grader location
+# Protected grader location
 RUN mkdir -p /grader
 
-COPY setup.sh /grader/setup.sh
-COPY grader.py /grader/grader.py
-COPY solution.sh /workspace/solution.sh
+# Copy task files
 COPY task.yaml /workspace/task.yaml
+COPY solution.sh /workspace/solution.sh
+COPY grader.py /grader/grader.py
+COPY setup.sh /setup.sh
 
-RUN chmod +x /grader/setup.sh /workspace/solution.sh
+RUN chmod +x /workspace/solution.sh /setup.sh
 
-# initialize environment
-RUN /grader/setup.sh
+# Initialize broken cluster state
+RUN /setup.sh
 
 CMD ["bash"]

@@ -7,45 +7,40 @@ difficulty: hard
 horizon: short
 
 description: |
-  The cluster ingress controller is experiencing periodic crashes
-  approximately every 4–6 hours.
+  The cluster ingress controller is crashing every 4–6 hours.
 
   Investigation findings:
 
     • Pods are being OOMKilled
-    • Memory usage steadily increases over time
+    • Memory usage steadily increases
     • TLS termination is enabled
     • TLS session reuse is heavily utilized
     • TLS sessions never expire
 
-  The issue is caused by a misconfigured TLS session cache timeout
-  in the ConfigMap named:
+  The issue is caused by a misconfigured TLS session timeout
+  in the ConfigMap:
 
       ingress-nginx-config
 
-  The field `ssl-session-timeout` is incorrectly set to a value
-  that prevents session expiration.
-
-  This results in unbounded memory growth and eventual OOM crashes.
-
-  Your task is to diagnose and fix the configuration issue.
+  The field `ssl-session-timeout` is incorrectly set to "0",
+  preventing session expiration and causing unbounded memory growth.
 
 requirements: |
   You MUST:
 
     • Correct the TLS session timeout configuration
-    • Stabilize the ingress controller
-    • Preserve the existing Deployment resource
+    • Preserve the existing Deployment
     • Keep TLS enabled
-    • Keep the memory limit unchanged (128Mi)
+    • Keep memory limit unchanged (128Mi)
+    • Keep container image unchanged (nginx:1.25)
 
 success_criteria:
   - Deployment UID remains unchanged
   - Memory limit remains exactly 128Mi
   - Container image remains nginx:1.25
-  - ConfigMap ssl-session-timeout is corrected (not "0")
+  - ssl-session-timeout is corrected (non-zero valid duration)
   - Deployment becomes Ready
-  - No new OOM restarts occur during validation window
+  - No new OOM restarts occur
 
 constraints:
   - Do NOT delete or recreate the Deployment
@@ -55,9 +50,5 @@ constraints:
   - Do NOT modify grader.py
 
 notes: |
-  The correct fix involves updating the existing ConfigMap
-  and safely restarting the Deployment.
-
-  Deleting and recreating resources will fail validation.
-  Increasing memory limits will fail validation.
-  Disabling TLS will fail validation.
+  Valid ssl-session-timeout values follow nginx duration format,
+  such as "10m" or "300s".

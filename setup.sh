@@ -1,33 +1,38 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-NS=ingress-system
+############################################################
+# Apex Nebula Task Setup
+# Initializes broken ingress state
+# Creates /grader/original_uid for validation
+############################################################
 
-kubectl create namespace $NS --dry-run=client -o yaml | kubectl apply -f -
+NS="ingress-system"
 
-############################################
-# Broken ConfigMap
-############################################
+echo "[setup] Creating namespace..."
+kubectl create namespace ${NS} --dry-run=client -o yaml | kubectl apply -f -
+
+echo "[setup] Creating broken ConfigMap..."
+
 cat <<EOF | kubectl apply -f -
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: ingress-nginx-config
-  namespace: $NS
+  namespace: ${NS}
 data:
   ssl-session-cache: "shared:SSL:1m"
   ssl-session-timeout: "0"
 EOF
 
-############################################
-# Deployment
-############################################
+echo "[setup] Deploying ingress controller (broken state)..."
+
 cat <<EOF | kubectl apply -f -
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: ingress-controller
-  namespace: $NS
+  namespace: ${NS}
 spec:
   replicas: 1
   selector:
@@ -48,11 +53,12 @@ spec:
         - sh
         - -c
         - |
+          echo "TLS timeout = \$SSL_SESSION_TIMEOUT"
           if [ "\$SSL_SESSION_TIMEOUT" = "0" ]; then
-            echo "Simulating memory leak..."
+            echo "Simulating TLS session memory leak..."
             sleep infinity
           else
-            nginx -g 'daemon off;'
+            nginx -g "daemon off;"
           fi
         env:
         - name: SSL_SESSION_TIMEOUT
@@ -62,11 +68,20 @@ spec:
               key: ssl-session-timeout
 EOF
 
-############################################
-# Save ORIGINAL UID (ANTI-CHEAT)
-############################################
-UID=$(kubectl get deployment ingress-controller -n $NS -o jsonpath='{.metadata.uid}')
+sleep 5
+
+############################################################
+# Save ORIGINAL UID for grader validation
+############################################################
 
 mkdir -p /grader
-echo "$UID" > /grader/original_uid
+
+ORIGINAL_UID=$(kubectl get deployment ingress-controller \
+  -n ${NS} \
+  -o jsonpath='{.metadata.uid}')
+
+echo "${ORIGINAL_UID}" > /grader/original_uid
 chmod 400 /grader/original_uid
+
+echo "[setup] Saved original UID to /grader/original_uid"
+echo "[setup] Setup complete."
