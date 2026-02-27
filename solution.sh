@@ -13,4 +13,4 @@ kubectl patch configmap ingress-nginx-config \
 kubectl rollout restart deployment ingress-controller -n $NS
 kubectl rollout status deployment ingress-controller -n $NS --timeout=120s
 
-echo "Fix complete."
+echo "Ingress stabilized."

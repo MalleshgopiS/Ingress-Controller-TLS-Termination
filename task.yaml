@@ -5,29 +5,34 @@ difficulty: hard
 horizon: short
 
 description: |
-  The ingress controller crashes every 4–6 hours.
+  The ingress controller crashes periodically due to a memory leak.
 
-  Investigation shows:
-    - Pods terminated with OOMKilled
-    - Memory steadily increases over time
-    - TLS termination is enabled
-    - TLS sessions never expire
+  Investigation findings:
+    • Pods are OOMKilled
+    • Memory usage grows continuously
+    • TLS termination is enabled
+    • TLS sessions never expire
 
-  Root cause is a TLS session cache configuration leak.
+  The TLS session cache timeout is misconfigured.
+
+  A ConfigMap named:
+      ingress-nginx-config
+
+  contains an invalid setting causing sessions to never expire.
 
   You must:
 
-    • Fix the TLS session cache configuration
-    • Stabilize the ingress controller
-    • Preserve the existing Deployment
-    • Keep TLS enabled
-    • Do NOT increase memory limits
+    - Fix the TLS session cache configuration
+    - Stabilize the ingress controller
+    - Preserve the existing Deployment
+    - Keep TLS enabled
+    - Do NOT increase memory limits
 
 success_criteria:
   - Deployment UID unchanged
   - Memory limit remains 128Mi
-  - TLS session timeout corrected
-  - Pod becomes Ready
+  - ConfigMap ssl-session-timeout is corrected
+  - Deployment becomes Ready
   - No new OOM restarts occur
 
 constraints:

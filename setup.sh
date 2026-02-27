@@ -3,11 +3,13 @@ set -euo pipefail
 
 NS=ingress-system
 
+echo "Initializing ingress TLS memory leak scenario..."
+
 kubectl create namespace $NS --dry-run=client -o yaml | kubectl apply -f -
 
-#################################
-# Broken TLS configuration
-#################################
+##################################################
+# Broken TLS configuration (ROOT CAUSE)
+##################################################
 
 cat <<EOF | kubectl apply -f -
 apiVersion: v1
@@ -20,9 +22,9 @@ data:
   ssl-session-timeout: "0"
 EOF
 
-#################################
-# Deployment
-#################################
+##################################################
+# Ingress Controller Deployment
+##################################################
 
 cat <<EOF | kubectl apply -f -
 apiVersion: apps/v1
@@ -66,12 +68,17 @@ spec:
           fi
 EOF
 
-#################################
-# Store original UID securely
-#################################
+##################################################
+# REQUIRED BY GRADER
+# Save original Deployment UID
+##################################################
+
+echo "Saving deployment UID for grader validation..."
 
 mkdir -p /grader
 
 kubectl get deployment ingress-controller -n $NS \
   -o jsonpath='{.metadata.uid}' \
   > /grader/original_uid
+
+echo "Setup complete."
