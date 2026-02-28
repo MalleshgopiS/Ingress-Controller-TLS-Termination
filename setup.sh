@@ -96,7 +96,7 @@ spec:
     spec:
       containers:
       - name: nginx
-        image: nginx:1.25
+        image: nginx:1.25.3
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 80
