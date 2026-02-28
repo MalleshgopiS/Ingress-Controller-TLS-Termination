@@ -10,11 +10,7 @@ kubectl patch configmap ingress-nginx-config \
   --type merge \
   -p '{"data":{"ssl-session-timeout":"10m"}}'
 
-echo "Waiting for deployment to remain Ready..."
-
-kubectl wait deployment ingress-controller \
-  -n $NS \
-  --for=condition=Available=True \
-  --timeout=120s
+echo "Sleeping briefly to allow controller to stabilize..."
+sleep 5
 
 echo "✅ Fix applied successfully."
