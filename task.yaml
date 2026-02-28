@@ -1,66 +1,57 @@
-id: ingress-controller-tls-termination-memory-leak
-title: Ingress Controller TLS Termination Memory Leak Causing Periodic Gateway Crashes
+name: Ingress-Controller-TLS-Termination
+slug: ingress-controller-tls-termination
 category: Incident Response & Troubleshooting
 difficulty: hard
 horizon: short
 
 description: |
-  The ingress controller is experiencing periodic restarts every 4–6 hours.
-  Investigation shows that TLS session caching is misconfigured, causing
-  unbounded memory growth.
+  The ingress controller is crashing due to an invalid TLS session
+  cache configuration.
 
   The ConfigMap `ingress-nginx-config` contains:
 
       ssl-session-timeout: "0"
 
-  A value of "0" disables session expiration, allowing stale TLS sessions
-  to accumulate indefinitely. This eventually leads to memory exhaustion
-  and container restarts.
+  This disables TLS session expiration and causes memory growth.
 
-  Your task is to correct the configuration without disrupting the existing
-  Deployment object.
+  Fix the configuration WITHOUT deleting or recreating the Deployment.
 
 environment:
-  namespace: default
+  namespace: ingress-system
   deployment: ingress-controller
   configmap: ingress-nginx-config
+  container_name: nginx
   container_image: nginx:1.25
   memory_limit: 128Mi
 
-requirements:
-  - Update the ConfigMap `ingress-nginx-config`
-  - Set `ssl-session-timeout` to a valid non-zero nginx duration
-  - Do NOT delete or recreate the Deployment
-  - Preserve the existing memory limit (128Mi)
-  - Preserve the existing container image (nginx:1.25)
-  - Ensure the Deployment becomes Ready
-  - Ensure nginx serves HTTP 200
-  - Ensure container restart count remains stable
+objectives:
+  - Update ConfigMap ingress-nginx-config
+  - Set ssl-session-timeout to valid non-zero nginx duration
+  - Preserve Deployment UID
+  - Ensure Deployment becomes Ready
+  - Ensure nginx returns HTTP 200
+  - Prevent restart count increase
 
 constraints:
-  - You must modify the existing resources in place
-  - You may not delete and recreate the Deployment
-  - You may not change resource limits or container image
-  - The timeout must match nginx duration format
-
-notes: |
-  Valid nginx duration formats include:
-
-      30s
-      5m
-      1h
-      1d
-      1w
-
-  Duration format must match:
-
-      ^[1-9][0-9]*(s|m|h|d|w|M|y)$
+  - Do not delete Deployment
+  - Do not recreate Deployment
+  - Do not change container image
+  - Do not change memory limits
 
 success_criteria:
-  - Deployment UID remains unchanged
-  - Memory limit is exactly 128Mi
-  - Container image is exactly nginx:1.25
-  - ssl-session-timeout is valid and non-zero
-  - Deployment status is Ready
-  - nginx returns HTTP 200
-  - Container restart count does not increase
+  - Deployment UID unchanged
+  - Memory limit remains 128Mi
+  - Image remains nginx:1.25
+  - ssl-session-timeout valid
+  - Deployment Ready
+  - HTTP 200 response
+  - Restart count stable
+
+notes: |
+  Valid nginx duration examples:
+
+    10s
+    5m
+    1h
+    2d
+    1w

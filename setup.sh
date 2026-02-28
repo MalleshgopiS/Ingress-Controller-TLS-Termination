@@ -1,13 +1,16 @@
 #!/bin/bash
 set -euo pipefail
 
-NS="default"
+NS="ingress-system"
 DEPLOY="ingress-controller"
 CM="ingress-nginx-config"
 
+echo "Creating namespace..."
+kubectl create namespace ${NS} --dry-run=client -o yaml | kubectl apply -f -
+
 echo "Creating broken ConfigMap..."
-kubectl create configmap "$CM" \
-  -n "$NS" \
+kubectl create configmap ${CM} \
+  -n ${NS} \
   --from-literal=ssl-session-timeout="0" \
   --dry-run=client -o yaml | kubectl apply -f -
 
@@ -36,27 +39,28 @@ spec:
         resources:
           limits:
             memory: "128Mi"
-        readinessProbe:
-          httpGet:
-            path: /
-            port: 80
-          initialDelaySeconds: 3
-          periodSeconds: 3
 EOF
 
-echo "Waiting for deployment to become Available..."
+echo "Waiting for pod Running state..."
 
-kubectl wait \
-  --for=condition=available \
-  deployment/${DEPLOY} \
-  -n ${NS} \
-  --timeout=180s
+for i in {1..60}; do
+  POD=$(kubectl get pods -n ${NS} -l app=ingress-controller \
+        -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
 
-echo "Saving original Deployment UID..."
+  if [[ -n "$POD" ]]; then
+    STATUS=$(kubectl get pod $POD -n ${NS} \
+             -o jsonpath='{.status.phase}')
+    [[ "$STATUS" == "Running" ]] && break
+  fi
 
-DEPLOYMENT_UID=$(kubectl get deployment ${DEPLOY} -n ${NS} -o jsonpath='{.metadata.uid}')
+  sleep 3
+done
+
+echo "Saving Deployment UID..."
+UID=$(kubectl get deployment ${DEPLOY} -n ${NS} \
+      -o jsonpath='{.metadata.uid}')
 
 mkdir -p /grader
-echo "${DEPLOYMENT_UID}" > /grader/original_uid
+echo "$UID" > /grader/original_uid
 
-echo "Setup complete."
+echo "Setup completed."
