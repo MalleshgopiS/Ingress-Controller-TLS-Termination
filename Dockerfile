@@ -13,4 +13,4 @@ RUN chmod +x /setup.sh
 COPY grader.py /grader/grader.py
 
 # Run setup AFTER container starts (cluster ready)
-CMD ["/bin/bash", "-c", "/setup.sh && python3 /grader/grader.py"]
+CMD ["/bin/bash", "/setup.sh"]
