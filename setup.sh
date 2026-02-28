@@ -57,7 +57,7 @@ data:
 EOF
 
 ############################################
-# Service (CRITICAL FIX)
+# Service
 ############################################
 echo "Creating service..."
 
@@ -75,7 +75,7 @@ spec:
 EOF
 
 ############################################
-# Deployment (stable rollout version)
+# Deployment
 ############################################
 echo "Creating deployment..."
 
@@ -108,28 +108,38 @@ spec:
           httpGet:
             path: /
             port: 80
-          initialDelaySeconds: 10
+          initialDelaySeconds: 15
           periodSeconds: 5
 
         livenessProbe:
           httpGet:
             path: /
             port: 80
-          initialDelaySeconds: 20
+          initialDelaySeconds: 30
           periodSeconds: 10
 EOF
 
 ############################################
-# WAIT FOR INITIAL READY STATE
+# STABLE WAIT (FIX)
 ############################################
-echo "Waiting for deployment readiness..."
+echo "Waiting for pod creation..."
 
-kubectl rollout status deployment ingress-controller \
+# wait until pod exists
+until kubectl get pods -n $NS -l app=ingress-controller \
+  -o jsonpath='{.items[0].metadata.name}' 2>/dev/null | grep -q .; do
+  sleep 2
+done
+
+echo "Waiting for pod Ready condition..."
+
+kubectl wait \
+  --for=condition=Ready pod \
+  -l app=ingress-controller \
   -n $NS \
   --timeout=180s
 
 ############################################
-# Save UID for grader
+# Save UID AFTER READY
 ############################################
 echo "Saving original UID..."
 
