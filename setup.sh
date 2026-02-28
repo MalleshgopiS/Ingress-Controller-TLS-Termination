@@ -6,6 +6,36 @@ NS="ingress-system"
 echo "Creating namespace..."
 kubectl create namespace $NS --dry-run=client -o yaml | kubectl apply -f -
 
+echo "Granting ubuntu-user access to ingress-system namespace..."
+
+kubectl apply -f - <<EOF
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ubuntu-user-admin
+  namespace: $NS
+rules:
+- apiGroups: ["", "apps"]
+  resources: ["pods", "deployments", "configmaps"]
+  verbs: ["get", "list", "watch", "patch", "update"]
+EOF
+
+kubectl apply -f - <<EOF
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ubuntu-user-admin-binding
+  namespace: $NS
+subjects:
+- kind: ServiceAccount
+  name: ubuntu-user
+  namespace: default
+roleRef:
+  kind: Role
+  name: ubuntu-user-admin
+  apiGroup: rbac.authorization.k8s.io
+EOF
+
 echo "Creating broken ConfigMap..."
 
 kubectl apply -n $NS -f - <<EOF
@@ -45,16 +75,10 @@ spec:
             memory: "128Mi"
 EOF
 
-echo "Waiting for pod..."
-
-kubectl wait --for=condition=available deployment/ingress-controller \
-  -n $NS --timeout=180s || true
-
-# Fallback wait (more reliable in Nebula)
+echo "Waiting briefly for pod..."
 sleep 15
 
 echo "Saving original UID..."
-
 mkdir -p /grader
 
 kubectl get deployment ingress-controller -n $NS \
