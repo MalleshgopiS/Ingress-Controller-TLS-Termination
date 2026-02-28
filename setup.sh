@@ -44,24 +44,32 @@ spec:
             memory: "128Mi"
           requests:
             memory: "128Mi"
+        # SAFE probes for slow bootstrap clusters
         readinessProbe:
           httpGet:
             path: /
             port: 80
-          initialDelaySeconds: 3
+          initialDelaySeconds: 15
           periodSeconds: 5
+          failureThreshold: 10
         livenessProbe:
           httpGet:
             path: /
             port: 80
-          initialDelaySeconds: 10
+          initialDelaySeconds: 30
           periodSeconds: 10
 EOF
 
-echo "Waiting for deployment rollout..."
-kubectl rollout status deployment ingress-controller -n $NS --timeout=180s
+echo "Waiting for deployment to become Available..."
+
+kubectl wait \
+  --for=condition=Available \
+  deployment/ingress-controller \
+  -n $NS \
+  --timeout=300s
 
 echo "Saving original Deployment UID..."
-kubectl get deployment ingress-controller -n $NS -o jsonpath='{.metadata.uid}' > /grader/original_uid
+kubectl get deployment ingress-controller -n $NS \
+  -o jsonpath='{.metadata.uid}' > /grader/original_uid
 
 echo "Setup complete."
