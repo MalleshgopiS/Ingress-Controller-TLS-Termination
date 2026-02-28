@@ -75,7 +75,7 @@ spec:
 EOF
 
 ############################################
-# Deployment (NO PROBES)
+# Deployment
 ############################################
 echo "Creating deployment..."
 
@@ -106,17 +106,16 @@ spec:
 EOF
 
 ############################################
-# WAIT FOR RUNNING POD (NOT READY)
+# SAFE WAIT (NO INFINITE LOOP)
 ############################################
-echo "Waiting for pod to be running..."
+echo "Waiting for deployment rollout..."
 
-until kubectl get pods -n $NS -l app=ingress-controller \
-  -o jsonpath='{.items[0].status.phase}' 2>/dev/null | grep -q Running; do
-  sleep 2
-done
+kubectl rollout status deployment/ingress-controller \
+  -n $NS \
+  --timeout=120s
 
 ############################################
-# SAVE UID
+# SAVE ORIGINAL UID
 ############################################
 echo "Saving original UID..."
 
