@@ -75,7 +75,7 @@ spec:
 EOF
 
 ############################################
-# Deployment
+# Deployment (NO PROBES)
 ############################################
 echo "Creating deployment..."
 
@@ -103,43 +103,20 @@ spec:
         resources:
           limits:
             memory: "128Mi"
-
-        readinessProbe:
-          httpGet:
-            path: /
-            port: 80
-          initialDelaySeconds: 15
-          periodSeconds: 5
-
-        livenessProbe:
-          httpGet:
-            path: /
-            port: 80
-          initialDelaySeconds: 30
-          periodSeconds: 10
 EOF
 
 ############################################
-# STABLE WAIT (FIX)
+# WAIT FOR RUNNING POD (NOT READY)
 ############################################
-echo "Waiting for pod creation..."
+echo "Waiting for pod to be running..."
 
-# wait until pod exists
 until kubectl get pods -n $NS -l app=ingress-controller \
-  -o jsonpath='{.items[0].metadata.name}' 2>/dev/null | grep -q .; do
+  -o jsonpath='{.items[0].status.phase}' 2>/dev/null | grep -q Running; do
   sleep 2
 done
 
-echo "Waiting for pod Ready condition..."
-
-kubectl wait \
-  --for=condition=Ready pod \
-  -l app=ingress-controller \
-  -n $NS \
-  --timeout=180s
-
 ############################################
-# Save UID AFTER READY
+# SAVE UID
 ############################################
 echo "Saving original UID..."
 
