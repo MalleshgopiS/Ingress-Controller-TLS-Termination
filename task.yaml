@@ -1,84 +1,88 @@
-name: Ingress-Controller-TLS-Termination
-slug: ingress-controller-tls-termination
-category: Incident Response & Troubleshooting
+id: ingress-tls-memory-leak
+title: Ingress Controller TLS Termination Memory Leak Causing Periodic Gateway Crashes
+
 difficulty: hard
+category: Incident Response & Troubleshooting
 horizon: short
 
 description: |
-  The ingress controller is experiencing periodic crashes caused by a TLS
-  session cache misconfiguration.
+  The Kubernetes ingress controller is experiencing periodic instability
+  caused by a TLS session cache misconfiguration.
 
-  The ConfigMap `ingress-nginx-config` currently contains:
+  Environment Details:
 
-      ssl-session-timeout: "0"
+    Namespace:
+      ingress-system
 
-  A timeout value of "0" disables expiration of cached TLS sessions,
-  allowing unlimited session accumulation. Over time this causes
-  unbounded memory growth and periodic container restarts.
+    Deployment:
+      ingress-controller
 
-  Your task is to correct this configuration safely without deleting
-  or recreating the existing Deployment.
+    ConfigMap:
+      ingress-nginx-config
 
-environment:
-  namespace: ingress-system
-  deployment: ingress-controller
-  configmap: ingress-nginx-config
-  container_name: nginx
-  container_image: nginx:1.25
-  memory_limit: 128Mi
+  Investigation Findings:
 
-setup_behavior: |
-  The environment is initialized automatically before the task begins.
+    The ConfigMap key `ssl-session-timeout` is currently set to "0".
+    This disables TLS session expiration and allows unbounded TLS
+    session accumulation, eventually exhausting container memory.
 
-  Initialization performs the following actions:
+  Observed Symptoms:
 
-  - Creates namespace `ingress-system`
-  - Creates ConfigMap `ingress-nginx-config`
-    with `ssl-session-timeout: "0"`
-  - Creates Deployment `ingress-controller`
-    running nginx:1.25 with memory limit 128Mi
-  - Records the original Deployment UID at:
+    - Memory usage steadily increases
+    - Pods restart intermittently
+    - Gateway instability occurs over time
 
-        /grader/original_uid
+  The cluster environment and broken configuration are already
+  initialized when the task begins.
 
-    The original Deployment UID is recorded during environment
-    initialization to ensure the Deployment object remains preserved
-    while applying the configuration fix.
+  Your objective is to correct the configuration safely without
+  recreating or replacing existing resources.
 
-objectives:
-  - Update ConfigMap ingress-nginx-config
-  - Set ssl-session-timeout to a valid non-zero nginx duration
+requirements:
+  - Update the ConfigMap `ingress-nginx-config`
+  - Set `ssl-session-timeout` to a valid non-zero nginx duration
   - Preserve the existing Deployment object
-  - Ensure the Deployment becomes Ready
-  - Ensure nginx returns HTTP 200 responses
-  - Prevent additional container restarts
+  - Keep memory limit exactly 128Mi
+  - Keep container image exactly nginx:1.25
+  - Ensure the deployment becomes Ready
+  - Ensure nginx serves HTTP 200 inside the running pod
+  - Ensure container restart count does not increase after stabilization
 
 constraints:
-  - Do not delete the Deployment
-  - Do not recreate the Deployment
-  - Do not modify the container image
-  - Do not change memory limits
+  - Do NOT delete and recreate the Deployment
+  - Do NOT modify resource limits
+  - Do NOT change container image
+  - Do NOT disable TLS
+  - Do NOT create additional deployments
 
 success_criteria:
-  - Deployment UID unchanged
-  - Memory limit remains 128Mi
-  - Image remains nginx:1.25
-  - ssl-session-timeout is valid and non-zero
-  - Deployment reports Ready status
-  - HTTP endpoint returns status 200
-  - Restart count remains stable
+  - Deployment UID remains unchanged
+  - Memory limit remains exactly 128Mi
+  - Container image remains nginx:1.25
+  - ssl-session-timeout is a valid non-zero nginx duration
+  - Deployment reports at least one Ready replica
+  - nginx returns HTTP 200 when accessed locally inside the pod
+  - Container restart count remains stable during validation window
 
 notes: |
   Valid nginx duration examples include:
 
-      10s
-      5m
-      1h
-      2d
-      1w
+    10m
+    300s
+    1h
+    2d
+    1w
 
-  Duration values must follow nginx time format:
+  Duration must be a positive integer followed by a supported nginx
+  time unit:
 
-      ^[1-9][0-9]*(s|m|h|d|w|M|y)$
+    s (seconds)
+    m (minutes)
+    h (hours)
+    d (days)
+    w (weeks)
+    M (months)
+    y (years)
 
-  Any valid non-zero duration is acceptable.
+  The initial environment and broken configuration are automatically
+  prepared before the task starts.

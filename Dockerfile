@@ -6,11 +6,11 @@ RUN apt-get update && \
     apt-get install -y jq && \
     rm -rf /var/lib/apt/lists/*
 
+# Copy files only (DO NOT RUN setup here)
 COPY setup.sh /setup.sh
 RUN chmod +x /setup.sh
 
 COPY grader.py /grader/grader.py
 
-# IMPORTANT: Do NOT auto-run setup or grader
-# Apex harness runs them separately
-CMD ["/bin/bash"]
+# Run setup AFTER container starts (cluster ready)
+CMD ["/bin/bash", "-c", "/setup.sh && python3 /grader/grader.py"]
