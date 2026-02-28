@@ -1,26 +1,29 @@
 #!/bin/bash
-set -euo pipefail
+set -e
 
 NS="ingress-system"
-DEPLOY="ingress-controller"
-CM="ingress-nginx-config"
 
 echo "Creating namespace..."
-kubectl create namespace "$NS" --dry-run=client -o yaml | kubectl apply -f -
+kubectl create namespace $NS 2>/dev/null || true
 
 echo "Creating broken ConfigMap..."
-kubectl create configmap "$CM" \
-  -n "$NS" \
-  --from-literal=ssl-session-timeout="0" \
-  --dry-run=client -o yaml | kubectl apply -f -
+cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ingress-nginx-config
+  namespace: $NS
+data:
+  ssl-session-timeout: "0"
+EOF
 
 echo "Creating deployment..."
-kubectl apply -f - <<EOF
+cat <<EOF | kubectl apply -f -
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: ${DEPLOY}
-  namespace: ${NS}
+  name: ingress-controller
+  namespace: $NS
 spec:
   replicas: 1
   selector:
@@ -39,15 +42,26 @@ spec:
         resources:
           limits:
             memory: "128Mi"
+          requests:
+            memory: "128Mi"
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 3
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 10
+          periodSeconds: 10
 EOF
 
 echo "Waiting for deployment rollout..."
-kubectl rollout status deployment/${DEPLOY} -n ${NS} --timeout=180s
+kubectl rollout status deployment ingress-controller -n $NS --timeout=180s
 
 echo "Saving original Deployment UID..."
-DEPLOYMENT_UID=$(kubectl get deployment ${DEPLOY} -n ${NS} -o jsonpath='{.metadata.uid}')
-
-mkdir -p /grader
-echo "${DEPLOYMENT_UID}" > /grader/original_uid
+kubectl get deployment ingress-controller -n $NS -o jsonpath='{.metadata.uid}' > /grader/original_uid
 
 echo "Setup complete."
