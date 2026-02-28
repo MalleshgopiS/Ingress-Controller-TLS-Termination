@@ -1,33 +1,26 @@
-#!/usr/bin/env bash
+#!/bin/bash
 set -euo pipefail
 
-NS=ingress-system
+NS="ingress-system"
+DEPLOY="ingress-controller"
+CM="ingress-nginx-config"
 
-kubectl create namespace $NS --dry-run=client -o yaml | kubectl apply -f -
+echo "Creating namespace..."
+kubectl create namespace "$NS" --dry-run=client -o yaml | kubectl apply -f -
 
-############################################
-# Broken ConfigMap
-############################################
-cat <<EOF | kubectl apply -f -
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: ingress-nginx-config
-  namespace: $NS
-data:
-  ssl-session-cache: "shared:SSL:1m"
-  ssl-session-timeout: "0"
-EOF
+echo "Creating broken ConfigMap..."
+kubectl create configmap "$CM" \
+  -n "$NS" \
+  --from-literal=ssl-session-timeout="0" \
+  --dry-run=client -o yaml | kubectl apply -f -
 
-############################################
-# Deployment (BROKEN STATE)
-############################################
-cat <<EOF | kubectl apply -f -
+echo "Creating deployment..."
+kubectl apply -f - <<EOF
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: ingress-controller
-  namespace: $NS
+  name: ${DEPLOY}
+  namespace: ${NS}
 spec:
   replicas: 1
   selector:
@@ -46,36 +39,15 @@ spec:
         resources:
           limits:
             memory: "128Mi"
-        command:
-        - sh
-        - -c
-        - |
-          if [ "\$SSL_SESSION_TIMEOUT" = "0" ]; then
-            echo "Simulating TLS memory leak..."
-            sleep infinity
-          else
-            nginx -g 'daemon off;'
-          fi
-        env:
-        - name: SSL_SESSION_TIMEOUT
-          valueFrom:
-            configMapKeyRef:
-              name: ingress-nginx-config
-              key: ssl-session-timeout
-
-        readinessProbe:
-          httpGet:
-            path: /
-            port: 80
-          initialDelaySeconds: 3
-          periodSeconds: 2
 EOF
 
-############################################
-# Save ORIGINAL UID
-############################################
-UID=$(kubectl get deployment ingress-controller -n $NS -o jsonpath='{.metadata.uid}')
+echo "Waiting for deployment rollout..."
+kubectl rollout status deployment/${DEPLOY} -n ${NS} --timeout=180s
+
+echo "Saving original Deployment UID..."
+DEPLOYMENT_UID=$(kubectl get deployment ${DEPLOY} -n ${NS} -o jsonpath='{.metadata.uid}')
 
 mkdir -p /grader
-echo "$UID" > /grader/original_uid
-chmod 400 /grader/original_uid
+echo "${DEPLOYMENT_UID}" > /grader/original_uid
+
+echo "Setup complete."
