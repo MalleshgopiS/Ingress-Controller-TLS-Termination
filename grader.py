@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import subprocess
 import time
 import re
@@ -8,10 +9,17 @@ CONFIGMAP = "ingress-nginx-config"
 
 
 # --------------------------------------------------
-# Helper
+# Apex Result Object (REQUIRED)
+# --------------------------------------------------
+class Result:
+    def __init__(self, score: float):
+        self.score = score
+
+
+# --------------------------------------------------
+# Helpers
 # --------------------------------------------------
 def run(cmd: str) -> str:
-    """Run shell command safely."""
     result = subprocess.run(
         cmd,
         shell=True,
@@ -22,7 +30,6 @@ def run(cmd: str) -> str:
 
 
 def wait_until(condition, timeout=120, interval=3):
-    """Poll until condition becomes True."""
     start = time.time()
     while time.time() - start < timeout:
         if condition():
@@ -32,7 +39,6 @@ def wait_until(condition, timeout=120, interval=3):
 
 
 def get_pod():
-    """Return ingress controller pod name."""
     return run(
         f"kubectl get pods -n {NS} "
         "-l app=ingress-controller "
@@ -67,7 +73,7 @@ def check_memory():
 
 
 def check_image():
-    """Image must remain pinned."""
+    """Image must remain nginx:1.25.3 (matches setup)."""
     image = run(
         f"kubectl get deployment {DEPLOY} -n {NS} "
         "-o jsonpath='{.spec.template.spec.containers[0].image}'"
@@ -76,10 +82,10 @@ def check_image():
 
 
 def check_timeout():
-    """ssl-session-timeout must be valid non-zero nginx duration."""
+    """ssl-session-timeout must be valid nginx duration."""
     timeout = run(
         f"kubectl get configmap {CONFIGMAP} -n {NS} "
-        "-o jsonpath=\"{{.data.ssl-session-timeout}}\""
+        "-o jsonpath=\"{.data.ssl-session-timeout}\""
     )
 
     pattern = r"^[1-9][0-9]*(s|m|h|d|w|M|y)$"
@@ -87,7 +93,7 @@ def check_timeout():
 
 
 def check_ready():
-    """Deployment must become available."""
+    """Deployment becomes available."""
     def ready():
         status = run(
             f"kubectl get deployment {DEPLOY} -n {NS} "
@@ -95,11 +101,11 @@ def check_ready():
         )
         return status.lower() == "true"
 
-    return wait_until(ready, timeout=120)
+    return wait_until(ready)
 
 
 def check_nginx_serving():
-    """Nginx must serve HTTP 200."""
+    """Nginx must serve HTTP."""
     pod = get_pod()
 
     def serving():
@@ -108,7 +114,6 @@ def check_nginx_serving():
             "-- sh -c 'wget -qO- http://localhost:80 || curl -s http://localhost:80'",
             shell=True,
             capture_output=True,
-            text=True,
         )
         return result.returncode == 0
 
@@ -116,7 +121,7 @@ def check_nginx_serving():
 
 
 def check_no_oom():
-    """Restart count must remain stable."""
+    """Restart count must stay stable."""
     pod = get_pod()
 
     before = run(
@@ -135,10 +140,10 @@ def check_no_oom():
 
 
 # --------------------------------------------------
-# MAIN GRADE FUNCTION (APEX REQUIRED SIGNATURE)
+# MAIN GRADE FUNCTION (APEX CONTRACT)
 # --------------------------------------------------
-
 def grade(task_dir: str):
+
     checks = [
         check_uid(),
         check_memory(),
@@ -151,4 +156,5 @@ def grade(task_dir: str):
 
     score = sum(checks) / len(checks)
 
-    return {"score": score}
+    # MUST return object with .score
+    return Result(score)
