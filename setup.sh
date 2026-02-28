@@ -7,7 +7,7 @@ echo "Creating namespace..."
 kubectl get namespace "$NS" >/dev/null 2>&1 || kubectl create namespace "$NS"
 
 ###############################################################################
-# Grant ubuntu-user access to ingress-system namespace
+# RBAC for ubuntu user
 ###############################################################################
 echo "Granting ubuntu-user access to $NS namespace..."
 
@@ -43,8 +43,7 @@ roleRef:
 EOF
 
 ###############################################################################
-# Create BROKEN (but runnable) ConfigMap
-# ssl-session-timeout intentionally wrong ("0")
+# Broken ConfigMap (timeout = 0)
 ###############################################################################
 echo "Creating broken ConfigMap..."
 
@@ -66,7 +65,7 @@ data:
 EOF
 
 ###############################################################################
-# Create Deployment (grader depends on exact values)
+# Deployment (FIXED MOUNT — CRITICAL)
 ###############################################################################
 echo "Creating deployment..."
 
@@ -95,7 +94,8 @@ spec:
             memory: "128Mi"
         volumeMounts:
         - name: nginx-config
-          mountPath: /etc/nginx/conf.d
+          mountPath: /etc/nginx/conf.d/default.conf
+          subPath: default.conf   # ⭐ IMPORTANT FIX
       volumes:
       - name: nginx-config
         configMap:
@@ -103,9 +103,9 @@ spec:
 EOF
 
 ###############################################################################
-# Wait until pod object exists (not readiness)
+# Wait for pod creation
 ###############################################################################
-echo "Waiting for pod object to be created..."
+echo "Waiting for pod object..."
 
 timeout 120 bash -c '
 until kubectl get pods -n '"$NS"' -l app=ingress-controller \
@@ -115,7 +115,7 @@ done
 '
 
 ###############################################################################
-# Save original Deployment UID (required by grader)
+# Save original UID for grader
 ###############################################################################
 echo "Saving original Deployment UID..."
 
