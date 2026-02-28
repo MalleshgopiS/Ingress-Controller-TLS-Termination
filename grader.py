@@ -9,7 +9,7 @@ CONFIGMAP = "ingress-nginx-config"
 
 
 # --------------------------------------------------
-# Apex Required Classes
+# Apex Result Classes (REQUIRED STRUCTURE)
 # --------------------------------------------------
 
 class Subscore:
@@ -20,9 +20,10 @@ class Subscore:
 
 
 class Result:
-    def __init__(self, score: float, subscores: list):
+    def __init__(self, score: float, subscores: list, weights: list):
         self.score = score
         self.subscores = subscores
+        self.weights = weights
 
 
 # --------------------------------------------------
@@ -62,19 +63,18 @@ def get_pod():
 
 def check_uid():
     """Deployment must NOT be recreated."""
-    current_uid = run(
+    current = run(
         f"kubectl get deployment {DEPLOY} -n {NS} "
         "-o jsonpath='{.metadata.uid}'"
     )
 
     with open("/grader/original_uid") as f:
-        original_uid = f.read().strip()
+        original = f.read().strip()
 
-    return current_uid == original_uid
+    return current == original
 
 
 def check_memory():
-    """Memory limit must remain 128Mi."""
     mem = run(
         f"kubectl get deployment {DEPLOY} -n {NS} "
         "-o jsonpath='{.spec.template.spec.containers[0].resources.limits.memory}'"
@@ -83,7 +83,6 @@ def check_memory():
 
 
 def check_image():
-    """Image must remain nginx:1.25.3."""
     image = run(
         f"kubectl get deployment {DEPLOY} -n {NS} "
         "-o jsonpath='{.spec.template.spec.containers[0].image}'"
@@ -92,7 +91,6 @@ def check_image():
 
 
 def check_timeout():
-    """ssl-session-timeout must be valid nginx duration."""
     timeout = run(
         f"kubectl get configmap {CONFIGMAP} -n {NS} "
         "-o jsonpath=\"{.data.ssl-session-timeout}\""
@@ -103,7 +101,6 @@ def check_timeout():
 
 
 def check_ready():
-    """Deployment must become Available."""
     def ready():
         status = run(
             f"kubectl get deployment {DEPLOY} -n {NS} "
@@ -115,7 +112,6 @@ def check_ready():
 
 
 def check_nginx_serving():
-    """Nginx must respond over HTTP."""
     pod = get_pod()
 
     def serving():
@@ -131,7 +127,6 @@ def check_nginx_serving():
 
 
 def check_no_oom():
-    """Restart count must remain stable."""
     pod = get_pod()
 
     before = run(
@@ -150,29 +145,35 @@ def check_no_oom():
 
 
 # --------------------------------------------------
-# MAIN GRADE FUNCTION (APEX CONTRACT)
+# MAIN GRADE FUNCTION
 # --------------------------------------------------
 
 def grade(task_dir: str):
 
-    checks = {
-        "uid_preserved": check_uid(),
-        "memory_preserved": check_memory(),
-        "image_preserved": check_image(),
-        "timeout_valid": check_timeout(),
-        "deployment_ready": check_ready(),
-        "nginx_serving": check_nginx_serving(),
-        "no_restarts": check_no_oom(),
-    }
+    checks = [
+        ("uid_preserved", check_uid()),
+        ("memory_preserved", check_memory()),
+        ("image_preserved", check_image()),
+        ("timeout_valid", check_timeout()),
+        ("deployment_ready", check_ready()),
+        ("nginx_serving", check_nginx_serving()),
+        ("no_restarts", check_no_oom()),
+    ]
 
     subscores = []
-    total_score = 0.0
+    weights = []
+    total = 0.0
 
-    for name, passed in checks.items():
+    for name, passed in checks:
         score = 1.0 if passed else 0.0
-        subscores.append(Subscore(name=name, score=score, max_score=1.0))
-        total_score += score
+        subscores.append(Subscore(name, score, 1.0))
+        weights.append(1.0)
+        total += score
 
-    final_score = total_score / len(subscores)
+    final_score = total / len(subscores)
 
-    return Result(score=final_score, subscores=subscores)
+    return Result(
+        score=final_score,
+        subscores=subscores,
+        weights=weights,
+    )
