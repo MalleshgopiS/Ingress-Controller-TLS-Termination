@@ -6,8 +6,8 @@ category: Incident Response & Troubleshooting
 horizon: short
 
 description: |
-  The Kubernetes ingress controller is experiencing periodic crashes due to a
-  TLS session cache misconfiguration.
+  The Kubernetes ingress controller is experiencing periodic instability
+  caused by a TLS session cache misconfiguration.
 
   Environment Details:
 
@@ -19,40 +19,40 @@ description: |
 
     ConfigMap:
       ingress-nginx-config
-      (located in the ingress-system namespace)
 
   Investigation Findings:
 
     The ConfigMap key `ssl-session-timeout` is currently set to "0".
-    This disables TLS session expiration and allows unbounded TLS session
-    accumulation, eventually exhausting container memory.
+    This disables TLS session expiration and allows unbounded TLS
+    session accumulation, eventually exhausting container memory.
 
   Observed Symptoms:
 
-    - Memory usage steadily increases over time
-    - Pods eventually restart due to memory pressure
-    - TLS session reuse is not functioning correctly
-    - Gateway instability occurs every few hours
+    - Memory usage steadily increases
+    - Pods restart intermittently
+    - Gateway instability occurs over time
 
-  Your task is to correct the TLS session timeout configuration
-  without recreating or replacing the existing Deployment object.
+  The cluster environment and broken configuration are already
+  initialized when the task begins.
+
+  Your objective is to correct the configuration safely without
+  recreating or replacing existing resources.
 
 requirements:
   - Update the ConfigMap `ingress-nginx-config`
-  - Correct `ssl-session-timeout` to a valid non-zero nginx duration
-  - Preserve the existing Deployment object (UID must remain unchanged)
+  - Set `ssl-session-timeout` to a valid non-zero nginx duration
+  - Preserve the existing Deployment object
   - Keep memory limit exactly 128Mi
   - Keep container image exactly nginx:1.25
-  - Ensure the deployment reaches Ready state
-  - Ensure nginx serves HTTP 200 on localhost after the fix
-  - Ensure no new container restarts occur during stabilization
+  - Ensure the deployment becomes Ready
+  - Ensure nginx serves HTTP 200 inside the running pod
+  - Ensure container restart count does not increase after stabilization
 
 constraints:
   - Do NOT delete and recreate the Deployment
-  - Do NOT modify memory limits
+  - Do NOT modify resource limits
   - Do NOT change container image
   - Do NOT disable TLS
-  - Do NOT modify grader.py
   - Do NOT create additional deployments
 
 success_criteria:
@@ -61,20 +61,28 @@ success_criteria:
   - Container image remains nginx:1.25
   - ssl-session-timeout is a valid non-zero nginx duration
   - Deployment reports at least one Ready replica
-  - nginx responds with HTTP 200 when accessed inside the pod
-  - No increase in container restart count during stabilization window
+  - nginx returns HTTP 200 when accessed locally inside the pod
+  - Container restart count remains stable during validation window
 
 notes: |
   Valid nginx duration examples include:
-    - 10m
-    - 300s
-    - 1h
-    - 2d
-    - 1w
 
-  Duration must be a positive integer followed by a supported nginx time unit:
-    s (seconds), m (minutes), h (hours), d (days), w (weeks), M (months), y (years)
+    10m
+    300s
+    1h
+    2d
+    1w
 
-  The initial broken state is automatically created by setup.sh.
-  The Deployment and ConfigMap already exist when the task begins.
-  Your responsibility is only to correct the misconfiguration.
+  Duration must be a positive integer followed by a supported nginx
+  time unit:
+
+    s (seconds)
+    m (minutes)
+    h (hours)
+    d (days)
+    w (weeks)
+    M (months)
+    y (years)
+
+  The initial environment and broken configuration are automatically
+  prepared before the task starts.
