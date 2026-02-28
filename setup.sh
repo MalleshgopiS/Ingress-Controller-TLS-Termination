@@ -1,26 +1,33 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -euo pipefail
 
-NS="ingress-system"
-DEPLOY="ingress-controller"
-CM="ingress-nginx-config"
+NS=ingress-system
 
-echo "Creating namespace..."
-kubectl create namespace ${NS} --dry-run=client -o yaml | kubectl apply -f -
+kubectl create namespace $NS --dry-run=client -o yaml | kubectl apply -f -
 
-echo "Creating broken ConfigMap..."
-kubectl create configmap ${CM} \
-  -n ${NS} \
-  --from-literal=ssl-session-timeout="0" \
-  --dry-run=client -o yaml | kubectl apply -f -
+############################################
+# Broken ConfigMap
+############################################
+cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ingress-nginx-config
+  namespace: $NS
+data:
+  ssl-session-cache: "shared:SSL:1m"
+  ssl-session-timeout: "0"
+EOF
 
-echo "Creating deployment..."
-kubectl apply -f - <<EOF
+############################################
+# Deployment (BROKEN STATE)
+############################################
+cat <<EOF | kubectl apply -f -
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: ${DEPLOY}
-  namespace: ${NS}
+  name: ingress-controller
+  namespace: $NS
 spec:
   replicas: 1
   selector:
@@ -39,28 +46,36 @@ spec:
         resources:
           limits:
             memory: "128Mi"
+        command:
+        - sh
+        - -c
+        - |
+          if [ "\$SSL_SESSION_TIMEOUT" = "0" ]; then
+            echo "Simulating TLS memory leak..."
+            sleep infinity
+          else
+            nginx -g 'daemon off;'
+          fi
+        env:
+        - name: SSL_SESSION_TIMEOUT
+          valueFrom:
+            configMapKeyRef:
+              name: ingress-nginx-config
+              key: ssl-session-timeout
+
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 3
+          periodSeconds: 2
 EOF
 
-echo "Waiting for pod Running state..."
-
-for i in {1..60}; do
-  POD=$(kubectl get pods -n ${NS} -l app=ingress-controller \
-        -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
-
-  if [[ -n "$POD" ]]; then
-    STATUS=$(kubectl get pod $POD -n ${NS} \
-             -o jsonpath='{.status.phase}')
-    [[ "$STATUS" == "Running" ]] && break
-  fi
-
-  sleep 3
-done
-
-echo "Saving Deployment UID..."
-UID=$(kubectl get deployment ${DEPLOY} -n ${NS} \
-      -o jsonpath='{.metadata.uid}')
+############################################
+# Save ORIGINAL UID
+############################################
+UID=$(kubectl get deployment ingress-controller -n $NS -o jsonpath='{.metadata.uid}')
 
 mkdir -p /grader
 echo "$UID" > /grader/original_uid
-
-echo "Setup completed."
+chmod 400 /grader/original_uid
