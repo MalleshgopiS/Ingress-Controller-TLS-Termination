@@ -4,8 +4,11 @@ set -euo pipefail
 NS="ingress-system"
 
 echo "Creating namespace..."
-kubectl create namespace $NS --dry-run=client -o yaml | kubectl apply -f -
+kubectl get ns $NS >/dev/null 2>&1 || kubectl create namespace $NS
 
+############################################
+# RBAC — allow ubuntu user to fix resources
+############################################
 echo "Granting ubuntu-user access to ingress-system namespace..."
 
 kubectl apply -f - <<EOF
@@ -13,11 +16,14 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: ubuntu-user-admin
-  namespace: $NS
+  namespace: ${NS}
 rules:
-- apiGroups: ["", "apps"]
-  resources: ["pods", "deployments", "configmaps"]
-  verbs: ["get", "list", "watch", "patch", "update"]
+- apiGroups: [""]
+  resources: ["configmaps","pods","services"]
+  verbs: ["get","list","watch","create","update","patch","delete"]
+- apiGroups: ["apps"]
+  resources: ["deployments","replicasets"]
+  verbs: ["get","list","watch","create","update","patch","delete"]
 EOF
 
 kubectl apply -f - <<EOF
@@ -25,7 +31,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: ubuntu-user-admin-binding
-  namespace: $NS
+  namespace: ${NS}
 subjects:
 - kind: ServiceAccount
   name: ubuntu-user
@@ -36,6 +42,9 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
 EOF
 
+############################################
+# Broken ConfigMap (TASK STATE)
+############################################
 echo "Creating broken ConfigMap..."
 
 kubectl apply -n $NS -f - <<EOF
@@ -47,6 +56,9 @@ data:
   ssl-session-timeout: "0"
 EOF
 
+############################################
+# Deployment (stable rollout version)
+############################################
 echo "Creating deployment..."
 
 kubectl apply -n $NS -f - <<EOF
@@ -73,17 +85,27 @@ spec:
         resources:
           limits:
             memory: "128Mi"
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 5
 EOF
 
+############################################
+# Wait for pod creation (NOT rollout yet)
+############################################
 echo "Waiting briefly for pod..."
-sleep 15
+sleep 10
 
+############################################
+# Save ORIGINAL UID for grader check
+############################################
 echo "Saving original UID..."
-mkdir -p /grader
 
-kubectl get deployment ingress-controller -n $NS \
+kubectl get deployment ingress-controller \
+  -n $NS \
   -o jsonpath='{.metadata.uid}' > /grader/original_uid
-
-chmod 444 /grader/original_uid
 
 echo "Setup complete."
