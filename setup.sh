@@ -54,7 +54,7 @@ data:
 EOF
 
 # -------------------------------------------------------
-# Deployment (NO PROBES)
+# Deployment
 # -------------------------------------------------------
 echo "Creating deployment..."
 
@@ -88,28 +88,28 @@ spec:
 EOF
 
 # -------------------------------------------------------
-# Wait for Pod creation
+# WAIT FOR POD (NOT ROLLOUT)
 # -------------------------------------------------------
-echo "Waiting for pod object..."
+echo "Waiting for pod creation..."
 
 until kubectl get pods -n $NS -l app=ingress-controller \
   -o jsonpath='{.items[0].metadata.name}' 2>/dev/null | grep -q .; do
   sleep 2
 done
 
-# -------------------------------------------------------
-# Wait for rollout
-# -------------------------------------------------------
-echo "Waiting for deployment readiness..."
+POD=$(kubectl get pods -n $NS -l app=ingress-controller \
+  -o jsonpath='{.items[0].metadata.name}')
 
-kubectl rollout status deployment ingress-controller \
+echo "Waiting for pod to be Running..."
+
+kubectl wait --for=condition=Ready pod/$POD \
   -n $NS --timeout=180s
 
-# Small stabilization delay (important in Nebula)
+# small stabilization delay (important for Nebula)
 sleep 5
 
 # -------------------------------------------------------
-# Save UID for grader
+# Save Deployment UID for grader
 # -------------------------------------------------------
 echo "Saving original Deployment UID..."
 
