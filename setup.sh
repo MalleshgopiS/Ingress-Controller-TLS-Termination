@@ -4,12 +4,12 @@ set -euo pipefail
 NS="ingress-system"
 
 echo "Creating namespace..."
-kubectl get namespace "$NS" >/dev/null 2>&1 || kubectl create namespace "$NS"
+kubectl get ns $NS >/dev/null 2>&1 || kubectl create ns $NS
 
 ###############################################################################
-# RBAC for ubuntu user
+# RBAC
 ###############################################################################
-echo "Granting ubuntu-user access to $NS namespace..."
+echo "Granting ubuntu-user access..."
 
 cat <<EOF | kubectl apply -f -
 apiVersion: rbac.authorization.k8s.io/v1
@@ -18,10 +18,7 @@ metadata:
   name: ubuntu-user-admin
   namespace: ${NS}
 rules:
-- apiGroups: [""]
-  resources: ["*"]
-  verbs: ["*"]
-- apiGroups: ["apps"]
+- apiGroups: ["", "apps"]
   resources: ["*"]
   verbs: ["*"]
 EOF
@@ -43,33 +40,32 @@ roleRef:
 EOF
 
 ###############################################################################
-# Broken ConfigMap (timeout = 0)
+# Broken ConfigMap
 ###############################################################################
 echo "Creating broken ConfigMap..."
 
-kubectl apply -n "$NS" -f - <<EOF
+kubectl apply -n $NS -f - <<EOF
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: ingress-nginx-config
 data:
   ssl-session-timeout: "0"
-
   default.conf: |
     server {
-        listen 80;
-        location / {
-            return 200 "nginx running";
-        }
+      listen 80;
+      location / {
+        return 200 "nginx running";
+      }
     }
 EOF
 
 ###############################################################################
-# Deployment (FIXED MOUNT — CRITICAL)
+# Deployment (CRITICAL FIXES)
 ###############################################################################
 echo "Creating deployment..."
 
-kubectl apply -n "$NS" -f - <<EOF
+kubectl apply -n $NS -f - <<EOF
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -92,10 +88,28 @@ spec:
         resources:
           limits:
             memory: "128Mi"
+
+        # ⭐ FIX 1 — readiness probe (ROLL OUT FIX)
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 2
+          periodSeconds: 3
+
+        # ⭐ FIX 2 — liveness probe (stability check)
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 5
+
         volumeMounts:
         - name: nginx-config
           mountPath: /etc/nginx/conf.d/default.conf
-          subPath: default.conf   # ⭐ IMPORTANT FIX
+          subPath: default.conf
+
       volumes:
       - name: nginx-config
         configMap:
@@ -103,28 +117,26 @@ spec:
 EOF
 
 ###############################################################################
-# Wait for pod creation
+# Wait until READY (IMPORTANT FOR QUALITY REVIEW)
 ###############################################################################
-echo "Waiting for pod object..."
+echo "Waiting for deployment readiness..."
 
-timeout 120 bash -c '
-until kubectl get pods -n '"$NS"' -l app=ingress-controller \
-  -o jsonpath="{.items[0].metadata.name}" 2>/dev/null | grep -q .; do
-  sleep 2
-done
-'
+kubectl rollout status deployment ingress-controller \
+  -n $NS \
+  --timeout=180s
 
 ###############################################################################
-# Save original UID for grader
+# Save ORIGINAL UID (grader requirement)
 ###############################################################################
 echo "Saving original Deployment UID..."
 
 mkdir -p /grader
 
 kubectl get deployment ingress-controller \
-  -n "$NS" \
-  -o jsonpath="{.metadata.uid}" > /grader/original_uid
+  -n $NS \
+  -o jsonpath='{.metadata.uid}' > /grader/original_uid
 
 chmod 444 /grader/original_uid
 
 echo "Setup complete."
+
