@@ -40,7 +40,7 @@ roleRef:
 EOF
 
 # -------------------------------------------------------
-# Broken ConfigMap (TASK TARGET)
+# Broken ConfigMap
 # -------------------------------------------------------
 echo "Creating broken ConfigMap..."
 
@@ -54,7 +54,7 @@ data:
 EOF
 
 # -------------------------------------------------------
-# Deployment
+# Deployment (NO PROBES)
 # -------------------------------------------------------
 echo "Creating deployment..."
 
@@ -85,20 +85,6 @@ spec:
             memory: "128Mi"
           requests:
             memory: "128Mi"
-
-        readinessProbe:
-          httpGet:
-            path: /
-            port: 80
-          initialDelaySeconds: 5
-          periodSeconds: 5
-
-        livenessProbe:
-          httpGet:
-            path: /
-            port: 80
-          initialDelaySeconds: 10
-          periodSeconds: 10
 EOF
 
 # -------------------------------------------------------
@@ -119,7 +105,7 @@ echo "Waiting for deployment readiness..."
 kubectl rollout status deployment ingress-controller \
   -n $NS --timeout=180s
 
-# stabilization wait (important for Nebula)
+# Small stabilization delay (important in Nebula)
 sleep 5
 
 # -------------------------------------------------------
