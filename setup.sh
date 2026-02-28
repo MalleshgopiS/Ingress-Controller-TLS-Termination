@@ -44,29 +44,14 @@ spec:
             memory: "128Mi"
           requests:
             memory: "128Mi"
-        # SAFE probes for slow bootstrap clusters
-        readinessProbe:
-          httpGet:
-            path: /
-            port: 80
-          initialDelaySeconds: 15
-          periodSeconds: 5
-          failureThreshold: 10
-        livenessProbe:
-          httpGet:
-            path: /
-            port: 80
-          initialDelaySeconds: 30
-          periodSeconds: 10
 EOF
 
-echo "Waiting for deployment to become Available..."
+echo "Waiting for pod object to be created..."
 
-kubectl wait \
-  --for=condition=Available \
-  deployment/ingress-controller \
-  -n $NS \
-  --timeout=300s
+# Wait only until Pod exists (NOT ready)
+until kubectl get pods -n $NS -l app=ingress-controller | grep -q ingress-controller; do
+  sleep 2
+done
 
 echo "Saving original Deployment UID..."
 kubectl get deployment ingress-controller -n $NS \
