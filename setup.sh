@@ -7,7 +7,7 @@ echo "Creating namespace..."
 kubectl create namespace $NS --dry-run=client -o yaml | kubectl apply -f -
 
 # -------------------------------------------------------
-# Grant ubuntu user access (REQUIRED BY APEX ENV)
+# RBAC (required for ubuntu user)
 # -------------------------------------------------------
 echo "Granting ubuntu-user access to ingress-system namespace..."
 
@@ -40,7 +40,7 @@ roleRef:
 EOF
 
 # -------------------------------------------------------
-# Create BROKEN ConfigMap (ssl-session-timeout = "0")
+# Broken ConfigMap
 # -------------------------------------------------------
 echo "Creating broken ConfigMap..."
 
@@ -53,17 +53,16 @@ data:
   ssl-session-timeout: "0"
   default.conf: |
     server {
-        listen 80 default_server;
+        listen 80;
         server_name _;
         location / {
             return 200 "nginx running";
-            add_header Content-Type text/plain;
         }
     }
 EOF
 
 # -------------------------------------------------------
-# Deployment (DO NOT CHANGE LOGIC)
+# Deployment (LOGIC UNCHANGED)
 # -------------------------------------------------------
 echo "Creating deployment..."
 
@@ -89,17 +88,11 @@ spec:
         image: nginx:1.25
         ports:
         - containerPort: 80
-
         resources:
           limits:
             memory: "128Mi"
           requests:
             memory: "128Mi"
-
-        volumeMounts:
-        - name: nginx-config
-          mountPath: /etc/nginx/conf.d/default.conf
-          subPath: default.conf
 
         readinessProbe:
           httpGet:
@@ -115,6 +108,10 @@ spec:
           initialDelaySeconds: 5
           periodSeconds: 5
 
+        volumeMounts:
+        - name: nginx-config
+          mountPath: /etc/nginx/conf.d   # ✅ FIXED (directory mount)
+
       volumes:
       - name: nginx-config
         configMap:
@@ -122,9 +119,9 @@ spec:
 EOF
 
 # -------------------------------------------------------
-# WAIT FOR POD OBJECT (avoid race condition)
+# Wait for Pod to exist
 # -------------------------------------------------------
-echo "Waiting for pod object to be created..."
+echo "Waiting for pod object..."
 
 until kubectl get pods -n $NS -l app=ingress-controller \
   -o jsonpath='{.items[0].metadata.name}' 2>/dev/null | grep -q .; do
@@ -132,24 +129,26 @@ until kubectl get pods -n $NS -l app=ingress-controller \
 done
 
 # -------------------------------------------------------
-# Wait for deployment readiness (CRITICAL FIX)
+# Wait for Deployment to be Ready
 # -------------------------------------------------------
 echo "Waiting for deployment readiness..."
 
 kubectl rollout status deployment ingress-controller \
   -n $NS --timeout=180s
 
-# small stabilization wait (Nebula snapshot env fix)
+# small stabilization wait (Nebula specific)
 sleep 5
 
 # -------------------------------------------------------
-# Save ORIGINAL UID for grader check
+# Save original UID for grader
 # -------------------------------------------------------
 echo "Saving original Deployment UID..."
+
+mkdir -p /grader
 
 kubectl get deployment ingress-controller -n $NS \
   -o jsonpath='{.metadata.uid}' > /grader/original_uid
 
+chmod 444 /grader/original_uid
+
 echo "Setup complete."
-
-
