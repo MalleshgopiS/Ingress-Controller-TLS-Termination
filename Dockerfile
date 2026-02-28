@@ -3,21 +3,12 @@ FROM us-central1-docker.pkg.dev/bespokelabs/nebula-devops-registry/nebula-devops
 WORKDIR /workspace
 
 RUN apt-get update && \
-    apt-get install -y jq=1.6-2ubuntu0.1 && \
+    apt-get install -y jq && \
     rm -rf /var/lib/apt/lists/*
 
-# Protected grader location
-RUN mkdir -p /grader
-
-# Copy task files
-COPY task.yaml /workspace/task.yaml
-COPY solution.sh /workspace/solution.sh
-COPY grader.py /grader/grader.py
 COPY setup.sh /setup.sh
+RUN chmod +x /setup.sh && /setup.sh
 
-RUN chmod +x /workspace/solution.sh /setup.sh
+COPY grader.py /grader/grader.py
 
-# Initialize broken cluster state
-RUN /setup.sh
-
-CMD ["bash"]
+CMD ["python3", "/grader/grader.py"]
