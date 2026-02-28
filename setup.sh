@@ -39,12 +39,24 @@ spec:
         resources:
           limits:
             memory: "128Mi"
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 3
+          periodSeconds: 3
 EOF
 
-echo "Waiting for deployment rollout..."
-kubectl rollout status deployment/${DEPLOY} -n ${NS} --timeout=180s
+echo "Waiting for pod to become Ready..."
+
+kubectl wait \
+  --for=condition=available \
+  deployment/${DEPLOY} \
+  -n ${NS} \
+  --timeout=180s
 
 echo "Saving original Deployment UID..."
+
 DEPLOYMENT_UID=$(kubectl get deployment ${DEPLOY} -n ${NS} -o jsonpath='{.metadata.uid}')
 
 mkdir -p /grader
