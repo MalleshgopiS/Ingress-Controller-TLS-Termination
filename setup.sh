@@ -43,7 +43,8 @@ roleRef:
 EOF
 
 ###############################################################################
-# Create broken ConfigMap
+# Create BROKEN (but runnable) ConfigMap
+# ssl-session-timeout intentionally wrong ("0")
 ###############################################################################
 echo "Creating broken ConfigMap..."
 
@@ -54,10 +55,18 @@ metadata:
   name: ingress-nginx-config
 data:
   ssl-session-timeout: "0"
+
+  default.conf: |
+    server {
+        listen 80;
+        location / {
+            return 200 "nginx running";
+        }
+    }
 EOF
 
 ###############################################################################
-# Create Deployment (DO NOT CHANGE — grader depends on this)
+# Create Deployment (grader depends on exact values)
 ###############################################################################
 echo "Creating deployment..."
 
@@ -94,7 +103,7 @@ spec:
 EOF
 
 ###############################################################################
-# Wait for pod creation (NOT readiness — broken config is expected)
+# Wait until pod object exists (not readiness)
 ###############################################################################
 echo "Waiting for pod object to be created..."
 
@@ -106,7 +115,7 @@ done
 '
 
 ###############################################################################
-# Save original Deployment UID (grader requirement)
+# Save original Deployment UID (required by grader)
 ###############################################################################
 echo "Saving original Deployment UID..."
 
@@ -114,7 +123,7 @@ mkdir -p /grader
 
 kubectl get deployment ingress-controller \
   -n "$NS" \
-  -o jsonpath='{.metadata.uid}' > /grader/original_uid
+  -o jsonpath="{.metadata.uid}" > /grader/original_uid
 
 chmod 444 /grader/original_uid
 
