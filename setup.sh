@@ -1,12 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 
-NS="ingress-system"
+NS="default"
 DEPLOY="ingress-controller"
 CM="ingress-nginx-config"
-
-echo "Creating namespace..."
-kubectl create namespace "$NS" --dry-run=client -o yaml | kubectl apply -f -
 
 echo "Creating broken ConfigMap..."
 kubectl create configmap "$CM" \
@@ -47,7 +44,7 @@ spec:
           periodSeconds: 3
 EOF
 
-echo "Waiting for pod to become Ready..."
+echo "Waiting for deployment to become Available..."
 
 kubectl wait \
   --for=condition=available \

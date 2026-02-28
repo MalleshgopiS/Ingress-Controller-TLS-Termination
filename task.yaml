@@ -1,88 +1,66 @@
-id: ingress-tls-memory-leak
+id: ingress-controller-tls-termination-memory-leak
 title: Ingress Controller TLS Termination Memory Leak Causing Periodic Gateway Crashes
-
-difficulty: hard
 category: Incident Response & Troubleshooting
+difficulty: hard
 horizon: short
 
 description: |
-  The Kubernetes ingress controller is experiencing periodic instability
-  caused by a TLS session cache misconfiguration.
+  The ingress controller is experiencing periodic restarts every 4–6 hours.
+  Investigation shows that TLS session caching is misconfigured, causing
+  unbounded memory growth.
 
-  Environment Details:
+  The ConfigMap `ingress-nginx-config` contains:
 
-    Namespace:
-      ingress-system
+      ssl-session-timeout: "0"
 
-    Deployment:
-      ingress-controller
+  A value of "0" disables session expiration, allowing stale TLS sessions
+  to accumulate indefinitely. This eventually leads to memory exhaustion
+  and container restarts.
 
-    ConfigMap:
-      ingress-nginx-config
+  Your task is to correct the configuration without disrupting the existing
+  Deployment object.
 
-  Investigation Findings:
-
-    The ConfigMap key `ssl-session-timeout` is currently set to "0".
-    This disables TLS session expiration and allows unbounded TLS
-    session accumulation, eventually exhausting container memory.
-
-  Observed Symptoms:
-
-    - Memory usage steadily increases
-    - Pods restart intermittently
-    - Gateway instability occurs over time
-
-  The cluster environment and broken configuration are already
-  initialized when the task begins.
-
-  Your objective is to correct the configuration safely without
-  recreating or replacing existing resources.
+environment:
+  namespace: default
+  deployment: ingress-controller
+  configmap: ingress-nginx-config
+  container_image: nginx:1.25
+  memory_limit: 128Mi
 
 requirements:
   - Update the ConfigMap `ingress-nginx-config`
   - Set `ssl-session-timeout` to a valid non-zero nginx duration
-  - Preserve the existing Deployment object
-  - Keep memory limit exactly 128Mi
-  - Keep container image exactly nginx:1.25
-  - Ensure the deployment becomes Ready
-  - Ensure nginx serves HTTP 200 inside the running pod
-  - Ensure container restart count does not increase after stabilization
+  - Do NOT delete or recreate the Deployment
+  - Preserve the existing memory limit (128Mi)
+  - Preserve the existing container image (nginx:1.25)
+  - Ensure the Deployment becomes Ready
+  - Ensure nginx serves HTTP 200
+  - Ensure container restart count remains stable
 
 constraints:
-  - Do NOT delete and recreate the Deployment
-  - Do NOT modify resource limits
-  - Do NOT change container image
-  - Do NOT disable TLS
-  - Do NOT create additional deployments
+  - You must modify the existing resources in place
+  - You may not delete and recreate the Deployment
+  - You may not change resource limits or container image
+  - The timeout must match nginx duration format
+
+notes: |
+  Valid nginx duration formats include:
+
+      30s
+      5m
+      1h
+      1d
+      1w
+
+  Duration format must match:
+
+      ^[1-9][0-9]*(s|m|h|d|w|M|y)$
 
 success_criteria:
   - Deployment UID remains unchanged
-  - Memory limit remains exactly 128Mi
-  - Container image remains nginx:1.25
-  - ssl-session-timeout is a valid non-zero nginx duration
-  - Deployment reports at least one Ready replica
-  - nginx returns HTTP 200 when accessed locally inside the pod
-  - Container restart count remains stable during validation window
-
-notes: |
-  Valid nginx duration examples include:
-
-    10m
-    300s
-    1h
-    2d
-    1w
-
-  Duration must be a positive integer followed by a supported nginx
-  time unit:
-
-    s (seconds)
-    m (minutes)
-    h (hours)
-    d (days)
-    w (weeks)
-    M (months)
-    y (years)
-
-  The initial environment and broken configuration are automatically
-  prepared before the task starts.
+  - Memory limit is exactly 128Mi
+  - Container image is exactly nginx:1.25
+  - ssl-session-timeout is valid and non-zero
+  - Deployment status is Ready
+  - nginx returns HTTP 200
+  - Container restart count does not increase
