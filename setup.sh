@@ -106,13 +106,21 @@ spec:
 EOF
 
 ############################################
-# SAFE WAIT (NO INFINITE LOOP)
+# WAIT FOR POD RUNNING (NOT AVAILABLE)
 ############################################
-echo "Waiting for deployment rollout..."
+echo "Waiting for pod to reach Running state..."
 
-kubectl rollout status deployment/ingress-controller \
-  -n $NS \
-  --timeout=120s
+for i in {1..60}; do
+  STATUS=$(kubectl get pods -n $NS -l app=ingress-controller \
+    -o jsonpath='{.items[0].status.phase}' 2>/dev/null || echo "")
+  
+  if [[ "$STATUS" == "Running" ]]; then
+    echo "Pod is running."
+    break
+  fi
+
+  sleep 2
+done
 
 ############################################
 # SAVE ORIGINAL UID
