@@ -1,88 +1,80 @@
-id: ingress-tls-memory-leak
-title: Ingress Controller TLS Termination Memory Leak Causing Periodic Gateway Crashes
-
-difficulty: hard
+name: Ingress-Controller-TLS-Termination
+slug: ingress-controller-tls-termination
 category: Incident Response & Troubleshooting
+difficulty: hard
 horizon: short
 
 description: |
-  The Kubernetes ingress controller is experiencing periodic instability
-  caused by a TLS session cache misconfiguration.
+  The ingress controller is experiencing periodic crashes due to a TLS
+  session cache misconfiguration.
 
-  Environment Details:
+  The ConfigMap `ingress-nginx-config` contains:
 
-    Namespace:
-      ingress-system
+      ssl-session-timeout: "0"
 
-    Deployment:
-      ingress-controller
+  A timeout value of "0" disables expiration of cached TLS sessions,
+  causing unbounded memory growth and eventual container restarts.
 
-    ConfigMap:
-      ingress-nginx-config
+  Your task is to fix the configuration WITHOUT deleting or recreating
+  the Deployment.
 
-  Investigation Findings:
+environment:
+  namespace: ingress-system
+  deployment: ingress-controller
+  configmap: ingress-nginx-config
+  container_name: nginx
+  container_image: nginx:1.25
+  memory_limit: 128Mi
 
-    The ConfigMap key `ssl-session-timeout` is currently set to "0".
-    This disables TLS session expiration and allows unbounded TLS
-    session accumulation, eventually exhausting container memory.
+setup_behavior: |
+  The environment is initialized automatically before the task begins.
 
-  Observed Symptoms:
+  setup.sh performs the following actions:
 
-    - Memory usage steadily increases
-    - Pods restart intermittently
-    - Gateway instability occurs over time
+  - Creates namespace `ingress-system`
+  - Creates ConfigMap `ingress-nginx-config`
+    with `ssl-session-timeout: "0"`
+  - Creates Deployment `ingress-controller`
+    running nginx:1.25 with memory limit 128Mi
+  - Stores the original Deployment UID at:
 
-  The cluster environment and broken configuration are already
-  initialized when the task begins.
+        /grader/original_uid
 
-  Your objective is to correct the configuration safely without
-  recreating or replacing existing resources.
+    This UID is used by the grader to ensure the Deployment
+    is NOT deleted or recreated during the solution.
 
-requirements:
-  - Update the ConfigMap `ingress-nginx-config`
-  - Set `ssl-session-timeout` to a valid non-zero nginx duration
-  - Preserve the existing Deployment object
-  - Keep memory limit exactly 128Mi
-  - Keep container image exactly nginx:1.25
-  - Ensure the deployment becomes Ready
-  - Ensure nginx serves HTTP 200 inside the running pod
-  - Ensure container restart count does not increase after stabilization
+objectives:
+  - Update ConfigMap ingress-nginx-config
+  - Set ssl-session-timeout to a valid non-zero nginx duration
+  - Preserve Deployment UID
+  - Ensure Deployment becomes Ready
+  - Ensure nginx returns HTTP 200
+  - Prevent restart count increase
 
 constraints:
-  - Do NOT delete and recreate the Deployment
-  - Do NOT modify resource limits
-  - Do NOT change container image
-  - Do NOT disable TLS
-  - Do NOT create additional deployments
+  - Do not delete Deployment
+  - Do not recreate Deployment
+  - Do not modify image version
+  - Do not change memory limits
 
 success_criteria:
-  - Deployment UID remains unchanged
-  - Memory limit remains exactly 128Mi
-  - Container image remains nginx:1.25
-  - ssl-session-timeout is a valid non-zero nginx duration
-  - Deployment reports at least one Ready replica
-  - nginx returns HTTP 200 when accessed locally inside the pod
-  - Container restart count remains stable during validation window
+  - Deployment UID unchanged
+  - Memory limit remains 128Mi
+  - Image remains nginx:1.25
+  - ssl-session-timeout valid and non-zero
+  - Deployment Ready
+  - HTTP 200 response
+  - Restart count stable
 
 notes: |
-  Valid nginx duration examples include:
+  Valid nginx duration examples:
 
-    10m
-    300s
-    1h
-    2d
-    1w
+      10s
+      5m
+      1h
+      2d
+      1w
 
-  Duration must be a positive integer followed by a supported nginx
-  time unit:
+  Duration must match:
 
-    s (seconds)
-    m (minutes)
-    h (hours)
-    d (days)
-    w (weeks)
-    M (months)
-    y (years)
-
-  The initial environment and broken configuration are automatically
-  prepared before the task starts.
+      ^[1-9][0-9]*(s|m|h|d|w|M|y)$
