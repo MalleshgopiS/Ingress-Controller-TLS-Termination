@@ -6,6 +6,20 @@ NS="ingress-system"
 echo "Creating namespace..."
 kubectl create namespace $NS 2>/dev/null || true
 
+echo "Granting ubuntu-user access to $NS namespace..."
+
+kubectl create role ubuntu-user-admin \
+  --namespace $NS \
+  --verb='*' \
+  --resource='*' \
+  2>/dev/null || true
+
+kubectl create rolebinding ubuntu-user-admin-binding \
+  --namespace $NS \
+  --role=ubuntu-user-admin \
+  --serviceaccount=default:ubuntu-user \
+  2>/dev/null || true
+
 echo "Creating broken ConfigMap..."
 cat <<EOF | kubectl apply -f -
 apiVersion: v1
@@ -48,7 +62,6 @@ EOF
 
 echo "Waiting for pod object to be created..."
 
-# Wait only until Pod exists (NOT ready)
 until kubectl get pods -n $NS -l app=ingress-controller | grep -q ingress-controller; do
   sleep 2
 done
