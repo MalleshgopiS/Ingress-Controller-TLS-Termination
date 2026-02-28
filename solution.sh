@@ -1,12 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-NS=ingress-system
+NS="ingress-system"
+
+echo "Patching ConfigMap..."
 
 kubectl patch configmap ingress-nginx-config \
   -n $NS \
   --type merge \
   -p '{"data":{"ssl-session-timeout":"10m"}}'
 
-kubectl rollout restart deployment ingress-controller -n $NS
-kubectl rollout status deployment ingress-controller -n $NS --timeout=180s
+echo "Waiting for deployment to remain Ready..."
+
+kubectl wait deployment ingress-controller \
+  -n $NS \
+  --for=condition=Available=True \
+  --timeout=120s
+
+echo "✅ Fix applied successfully."
