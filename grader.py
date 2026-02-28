@@ -9,16 +9,26 @@ CONFIGMAP = "ingress-nginx-config"
 
 
 # --------------------------------------------------
-# Apex Result Object (REQUIRED)
+# Apex Required Classes
 # --------------------------------------------------
-class Result:
-    def __init__(self, score: float):
+
+class Subscore:
+    def __init__(self, name: str, score: float, max_score: float):
+        self.name = name
         self.score = score
+        self.max_score = max_score
+
+
+class Result:
+    def __init__(self, score: float, subscores: list):
+        self.score = score
+        self.subscores = subscores
 
 
 # --------------------------------------------------
 # Helpers
 # --------------------------------------------------
+
 def run(cmd: str) -> str:
     result = subprocess.run(
         cmd,
@@ -73,7 +83,7 @@ def check_memory():
 
 
 def check_image():
-    """Image must remain nginx:1.25.3 (matches setup)."""
+    """Image must remain nginx:1.25.3."""
     image = run(
         f"kubectl get deployment {DEPLOY} -n {NS} "
         "-o jsonpath='{.spec.template.spec.containers[0].image}'"
@@ -93,7 +103,7 @@ def check_timeout():
 
 
 def check_ready():
-    """Deployment becomes available."""
+    """Deployment must become Available."""
     def ready():
         status = run(
             f"kubectl get deployment {DEPLOY} -n {NS} "
@@ -105,7 +115,7 @@ def check_ready():
 
 
 def check_nginx_serving():
-    """Nginx must serve HTTP."""
+    """Nginx must respond over HTTP."""
     pod = get_pod()
 
     def serving():
@@ -121,7 +131,7 @@ def check_nginx_serving():
 
 
 def check_no_oom():
-    """Restart count must stay stable."""
+    """Restart count must remain stable."""
     pod = get_pod()
 
     before = run(
@@ -142,19 +152,27 @@ def check_no_oom():
 # --------------------------------------------------
 # MAIN GRADE FUNCTION (APEX CONTRACT)
 # --------------------------------------------------
+
 def grade(task_dir: str):
 
-    checks = [
-        check_uid(),
-        check_memory(),
-        check_image(),
-        check_timeout(),
-        check_ready(),
-        check_nginx_serving(),
-        check_no_oom(),
-    ]
+    checks = {
+        "uid_preserved": check_uid(),
+        "memory_preserved": check_memory(),
+        "image_preserved": check_image(),
+        "timeout_valid": check_timeout(),
+        "deployment_ready": check_ready(),
+        "nginx_serving": check_nginx_serving(),
+        "no_restarts": check_no_oom(),
+    }
 
-    score = sum(checks) / len(checks)
+    subscores = []
+    total_score = 0.0
 
-    # MUST return object with .score
-    return Result(score)
+    for name, passed in checks.items():
+        score = 1.0 if passed else 0.0
+        subscores.append(Subscore(name=name, score=score, max_score=1.0))
+        total_score += score
+
+    final_score = total_score / len(subscores)
+
+    return Result(score=final_score, subscores=subscores)
