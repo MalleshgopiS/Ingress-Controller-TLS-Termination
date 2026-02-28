@@ -1,183 +1,145 @@
 import subprocess
-import json
-import time
 import re
+import time
 
 NS = "ingress-system"
 DEPLOY = "ingress-controller"
+CONFIGMAP = "ingress-nginx-config"
 
 
 def run(cmd):
-    """Execute shell command and return stripped output."""
-    try:
-        return subprocess.check_output(cmd, shell=True, text=True).strip()
-    except Exception:
-        return ""
+    return subprocess.check_output(cmd, shell=True, text=True).strip()
 
 
-def wait_until(fn, timeout=120, interval=2):
-    """
-    Poll a condition function until it returns True or timeout occurs.
-    Avoids fixed sleep durations per Nebula grading guidelines.
-    """
+# -----------------------------
+# helpers
+# -----------------------------
+def wait_until(fn, timeout=120, interval=5):
     start = time.time()
     while time.time() - start < timeout:
-        if fn():
-            return True
+        try:
+            if fn():
+                return True
+        except Exception:
+            pass
         time.sleep(interval)
     return False
 
 
-def check_uid():
-    """
-    Ensure the original Deployment object was not deleted/recreated.
-    Only patching and rolling updates are allowed.
-    """
-    try:
-        original = open("/grader/original_uid").read().strip()
-    except Exception:
-        return False
+def get_pod():
+    return run(
+        f"kubectl get pod -n {NS} -l app=ingress-controller "
+        "-o jsonpath='{.items[0].metadata.name}'"
+    )
 
+
+# -----------------------------
+# checks (UNCHANGED LOGIC)
+# -----------------------------
+def check_uid():
+    original = open("/grader/original_uid").read().strip()
     current = run(
-        f"kubectl get deploy {DEPLOY} -n {NS} -o jsonpath='{{.metadata.uid}}'"
+        f"kubectl get deployment {DEPLOY} -n {NS} "
+        "-o jsonpath='{.metadata.uid}'"
     )
     return original == current
 
 
 def check_memory():
-    """
-    Ensure memory limit remains exactly 128Mi.
-    Prevents changing resource limits to bypass OOM behavior.
-    """
     mem = run(
-        f"kubectl get deploy {DEPLOY} -n {NS} "
+        f"kubectl get deployment {DEPLOY} -n {NS} "
         "-o jsonpath='{.spec.template.spec.containers[0].resources.limits.memory}'"
     )
     return mem == "128Mi"
 
 
 def check_image():
-    """
-    Ensure container image remains nginx:1.25.
-    Prevents swapping image to bypass the problem.
-    """
-    img = run(
-        f"kubectl get deploy {DEPLOY} -n {NS} "
+    image = run(
+        f"kubectl get deployment {DEPLOY} -n {NS} "
         "-o jsonpath='{.spec.template.spec.containers[0].image}'"
     )
-    return img == "nginx:1.25"
+    return image == "nginx:1.25"
 
 
 def check_timeout():
-    """
-    Validate ssl-session-timeout is:
-    - Not zero
-    - Valid nginx duration format
-
-    Nginx supports:
-      s (seconds)
-      m (minutes)
-      h (hours)
-      d (days)
-      w (weeks)
-      M (months)
-      y (years)
-
-    Examples:
-      10m, 300s, 1h, 2d
-    """
-    timeout = run(
-        f"kubectl get cm ingress-nginx-config -n {NS} "
+    value = run(
+        f"kubectl get configmap {CONFIGMAP} -n {NS} "
         "-o jsonpath='{.data.ssl-session-timeout}'"
     )
-
-    if timeout == "0" or not timeout:
-        return False
-
-    pattern = r'^[1-9][0-9]*(s|m|h|d|w|M|y)$'
-    return re.match(pattern, timeout) is not None
-
-
-def deployment_ready():
-    """
-    Check if deployment reports at least one ready replica.
-    """
-    ready = run(
-        f"kubectl get deploy {DEPLOY} -n {NS} "
-        "-o jsonpath='{.status.readyReplicas}'"
-    )
-    return ready and ready.isdigit() and int(ready) > 0
+    return re.match(r'^[1-9][0-9]*(s|m|h|d|w|M|y)$', value) is not None
 
 
 def check_ready():
-    """
-    Wait for deployment to become Ready.
-    Uses convergence polling instead of fixed sleep.
-    """
-    return wait_until(deployment_ready, timeout=120)
+    def ready():
+        status = run(
+            f"kubectl get deployment {DEPLOY} -n {NS} "
+            "-o jsonpath='{.status.conditions[?(@.type==\"Available\")].status}'"
+        )
+        return status == "True"
+
+    return wait_until(ready, 120)
 
 
+# ⭐ FIXED PART (container wait added)
 def check_nginx_serving():
-    """
-    Functional validation:
-    Ensure nginx responds with HTTP 200 internally.
-    This validates actual runtime behavior, not just config presence.
-    """
-    pod = run(
-        f"kubectl get pods -n {NS} "
-        "-l app=ingress-controller "
-        "-o jsonpath='{.items[0].metadata.name}'"
-    )
 
-    if not pod:
+    def container_ready():
+        pod = get_pod()
+        state = run(
+            f"kubectl get pod {pod} -n {NS} "
+            "-o jsonpath='{.status.containerStatuses[0].ready}'"
+        )
+        return state == "true"
+
+    if not wait_until(container_ready, 120):
         return False
 
-    code = run(
-        f"kubectl exec -n {NS} {pod} -- "
-        "curl -s -o /dev/null -w '%{http_code}' localhost"
-    )
+    pod = get_pod()
 
-    return code == "200"
+    try:
+        run(
+            f"kubectl exec -n {NS} {pod} -c nginx -- "
+            "wget -qO- http://localhost:80 >/dev/null"
+        )
+        return True
+    except Exception:
+        return False
 
 
 def check_no_oom():
-    """
-    Ensure no additional container restarts occur after fix.
-    This validates that the memory leak condition is resolved.
-    """
-    pod = run(
-        f"kubectl get pods -n {NS} "
-        "-l app=ingress-controller "
-        "-o jsonpath='{.items[0].metadata.name}'"
-    )
+    pod = get_pod()
 
-    if not pod:
-        return False
-
-    before = run(
+    first = run(
         f"kubectl get pod {pod} -n {NS} "
         "-o jsonpath='{.status.containerStatuses[0].restartCount}'"
     )
 
-    def stable():
-        after = run(
-            f"kubectl get pod {pod} -n {NS} "
-            "-o jsonpath='{.status.containerStatuses[0].restartCount}'"
-        )
-        return before == after
+    time.sleep(60)
 
-    return wait_until(stable, timeout=60)
+    second = run(
+        f"kubectl get pod {pod} -n {NS} "
+        "-o jsonpath='{.status.containerStatuses[0].restartCount}'"
+    )
+
+    return first == second
 
 
-checks = [
-    check_uid(),
-    check_memory(),
-    check_image(),
-    check_timeout(),
-    check_ready(),
-    check_nginx_serving(),
-    check_no_oom(),
-]
+# -----------------------------
+# ⭐ REQUIRED BY APEX
+# -----------------------------
+def grade():
+    checks = [
+        check_uid(),
+        check_memory(),
+        check_image(),
+        check_timeout(),
+        check_ready(),
+        check_nginx_serving(),
+        check_no_oom(),
+    ]
 
-score = sum(checks) / len(checks)
-print(json.dumps({"score": score}))
+    return {"score": sum(checks) / len(checks)}
+
+
+if __name__ == "__main__":
+    print(grade())
