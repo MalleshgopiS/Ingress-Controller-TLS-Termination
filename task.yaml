@@ -5,18 +5,19 @@ difficulty: hard
 horizon: short
 
 description: |
-  The ingress controller is experiencing periodic crashes due to a TLS
+  The ingress controller is experiencing periodic crashes caused by a TLS
   session cache misconfiguration.
 
-  The ConfigMap `ingress-nginx-config` contains:
+  The ConfigMap `ingress-nginx-config` currently contains:
 
       ssl-session-timeout: "0"
 
   A timeout value of "0" disables expiration of cached TLS sessions,
-  causing unbounded memory growth and eventual container restarts.
+  allowing unlimited session accumulation. Over time this causes
+  unbounded memory growth and periodic container restarts.
 
-  Your task is to fix the configuration WITHOUT deleting or recreating
-  the Deployment.
+  Your task is to correct this configuration safely without deleting
+  or recreating the existing Deployment.
 
 environment:
   namespace: ingress-system
@@ -29,45 +30,46 @@ environment:
 setup_behavior: |
   The environment is initialized automatically before the task begins.
 
-  setup.sh performs the following actions:
+  Initialization performs the following actions:
 
   - Creates namespace `ingress-system`
   - Creates ConfigMap `ingress-nginx-config`
     with `ssl-session-timeout: "0"`
   - Creates Deployment `ingress-controller`
     running nginx:1.25 with memory limit 128Mi
-  - Stores the original Deployment UID at:
+  - Records the original Deployment UID at:
 
         /grader/original_uid
 
-    This UID is used by the grader to ensure the Deployment
-    is NOT deleted or recreated during the solution.
+    The original Deployment UID is recorded during environment
+    initialization to ensure the Deployment object remains preserved
+    while applying the configuration fix.
 
 objectives:
   - Update ConfigMap ingress-nginx-config
   - Set ssl-session-timeout to a valid non-zero nginx duration
-  - Preserve Deployment UID
-  - Ensure Deployment becomes Ready
-  - Ensure nginx returns HTTP 200
-  - Prevent restart count increase
+  - Preserve the existing Deployment object
+  - Ensure the Deployment becomes Ready
+  - Ensure nginx returns HTTP 200 responses
+  - Prevent additional container restarts
 
 constraints:
-  - Do not delete Deployment
-  - Do not recreate Deployment
-  - Do not modify image version
+  - Do not delete the Deployment
+  - Do not recreate the Deployment
+  - Do not modify the container image
   - Do not change memory limits
 
 success_criteria:
   - Deployment UID unchanged
   - Memory limit remains 128Mi
   - Image remains nginx:1.25
-  - ssl-session-timeout valid and non-zero
-  - Deployment Ready
-  - HTTP 200 response
-  - Restart count stable
+  - ssl-session-timeout is valid and non-zero
+  - Deployment reports Ready status
+  - HTTP endpoint returns status 200
+  - Restart count remains stable
 
 notes: |
-  Valid nginx duration examples:
+  Valid nginx duration examples include:
 
       10s
       5m
@@ -75,6 +77,8 @@ notes: |
       2d
       1w
 
-  Duration must match:
+  Duration values must follow nginx time format:
 
       ^[1-9][0-9]*(s|m|h|d|w|M|y)$
+
+  Any valid non-zero duration is acceptable.
