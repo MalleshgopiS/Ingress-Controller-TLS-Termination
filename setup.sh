@@ -6,42 +6,6 @@ NS="ingress-system"
 echo "Creating namespace..."
 kubectl create namespace $NS --dry-run=client -o yaml | kubectl apply -f -
 
-# -------------------------------------------------------
-# RBAC
-# -------------------------------------------------------
-echo "Granting ubuntu-user access to ingress-system namespace..."
-
-kubectl apply -f - <<EOF
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: ubuntu-user-admin
-  namespace: $NS
-rules:
-- apiGroups: ["", "apps"]
-  resources: ["*"]
-  verbs: ["*"]
-EOF
-
-kubectl apply -f - <<EOF
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: ubuntu-user-admin-binding
-  namespace: $NS
-subjects:
-- kind: User
-  name: ubuntu
-  apiGroup: rbac.authorization.k8s.io
-roleRef:
-  kind: Role
-  name: ubuntu-user-admin
-  apiGroup: rbac.authorization.k8s.io
-EOF
-
-# -------------------------------------------------------
-# Broken ConfigMap
-# -------------------------------------------------------
 echo "Creating broken ConfigMap..."
 
 kubectl apply -n $NS -f - <<EOF
@@ -53,9 +17,6 @@ data:
   ssl-session-timeout: "0"
 EOF
 
-# -------------------------------------------------------
-# Deployment
-# -------------------------------------------------------
 echo "Creating deployment..."
 
 kubectl apply -n $NS -f - <<EOF
@@ -63,8 +24,6 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: ingress-controller
-  labels:
-    app: ingress-controller
 spec:
   replicas: 1
   selector:
@@ -78,40 +37,23 @@ spec:
       containers:
       - name: nginx
         image: nginx:1.25
+        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 80
         resources:
           limits:
             memory: "128Mi"
-          requests:
-            memory: "128Mi"
 EOF
 
-# -------------------------------------------------------
-# WAIT FOR POD (NOT ROLLOUT)
-# -------------------------------------------------------
-echo "Waiting for pod creation..."
+echo "Waiting for pod..."
 
-until kubectl get pods -n $NS -l app=ingress-controller \
-  -o jsonpath='{.items[0].metadata.name}' 2>/dev/null | grep -q .; do
-  sleep 2
-done
+kubectl wait --for=condition=available deployment/ingress-controller \
+  -n $NS --timeout=180s || true
 
-POD=$(kubectl get pods -n $NS -l app=ingress-controller \
-  -o jsonpath='{.items[0].metadata.name}')
+# Fallback wait (more reliable in Nebula)
+sleep 15
 
-echo "Waiting for pod to be Running..."
-
-kubectl wait --for=condition=Ready pod/$POD \
-  -n $NS --timeout=180s
-
-# small stabilization delay (important for Nebula)
-sleep 5
-
-# -------------------------------------------------------
-# Save Deployment UID for grader
-# -------------------------------------------------------
-echo "Saving original Deployment UID..."
+echo "Saving original UID..."
 
 mkdir -p /grader
 
