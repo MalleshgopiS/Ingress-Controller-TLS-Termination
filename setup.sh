@@ -7,7 +7,7 @@ echo "Creating namespace..."
 kubectl create namespace $NS --dry-run=client -o yaml | kubectl apply -f -
 
 # -------------------------------------------------------
-# RBAC (required for ubuntu user)
+# RBAC
 # -------------------------------------------------------
 echo "Granting ubuntu-user access to ingress-system namespace..."
 
@@ -40,7 +40,7 @@ roleRef:
 EOF
 
 # -------------------------------------------------------
-# Broken ConfigMap
+# Broken ConfigMap (TASK TARGET)
 # -------------------------------------------------------
 echo "Creating broken ConfigMap..."
 
@@ -51,18 +51,10 @@ metadata:
   name: ingress-nginx-config
 data:
   ssl-session-timeout: "0"
-  default.conf: |
-    server {
-        listen 80;
-        server_name _;
-        location / {
-            return 200 "nginx running";
-        }
-    }
 EOF
 
 # -------------------------------------------------------
-# Deployment (LOGIC UNCHANGED)
+# Deployment
 # -------------------------------------------------------
 echo "Creating deployment..."
 
@@ -98,28 +90,19 @@ spec:
           httpGet:
             path: /
             port: 80
-          initialDelaySeconds: 3
-          periodSeconds: 3
+          initialDelaySeconds: 5
+          periodSeconds: 5
 
         livenessProbe:
           httpGet:
             path: /
             port: 80
-          initialDelaySeconds: 5
-          periodSeconds: 5
-
-        volumeMounts:
-        - name: nginx-config
-          mountPath: /etc/nginx/conf.d   # ✅ FIXED (directory mount)
-
-      volumes:
-      - name: nginx-config
-        configMap:
-          name: ingress-nginx-config
+          initialDelaySeconds: 10
+          periodSeconds: 10
 EOF
 
 # -------------------------------------------------------
-# Wait for Pod to exist
+# Wait for Pod creation
 # -------------------------------------------------------
 echo "Waiting for pod object..."
 
@@ -129,18 +112,18 @@ until kubectl get pods -n $NS -l app=ingress-controller \
 done
 
 # -------------------------------------------------------
-# Wait for Deployment to be Ready
+# Wait for rollout
 # -------------------------------------------------------
 echo "Waiting for deployment readiness..."
 
 kubectl rollout status deployment ingress-controller \
   -n $NS --timeout=180s
 
-# small stabilization wait (Nebula specific)
+# stabilization wait (important for Nebula)
 sleep 5
 
 # -------------------------------------------------------
-# Save original UID for grader
+# Save UID for grader
 # -------------------------------------------------------
 echo "Saving original Deployment UID..."
 
