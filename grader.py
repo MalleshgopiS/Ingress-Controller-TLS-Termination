@@ -2,8 +2,8 @@
 """
 Ingress Controller TLS Termination Grader
 
-All checks contribute equally to final score.
-Each check verifies documented task constraints.
+All checks contribute equally.
+Each check verifies documented constraints and success criteria.
 """
 
 import subprocess
@@ -14,6 +14,17 @@ import re
 NS = "ingress-system"
 DEPLOY = "ingress-controller"
 CM = "ingress-nginx-config"
+
+
+# --------------------------------------------------
+# Lightweight Apex-Compatible GradeResult
+# --------------------------------------------------
+
+class GradeResult:
+    def __init__(self, score, subscores, feedback):
+        self.score = score
+        self.subscores = subscores
+        self.feedback = feedback
 
 
 # --------------------------------------------------
@@ -172,8 +183,8 @@ def grade(task_dir=None):
     subscores = {k: (1.0 if v else 0.0) for k, v in checks.items()}
     score = sum(subscores.values()) / len(subscores)
 
-    return {
-        "score": score,
-        "subscores": subscores,
-        "feedback": "All checks passed." if score == 1.0 else "Some checks failed."
-    }
+    return GradeResult(
+        score=score,
+        subscores=subscores,
+        feedback="All checks passed." if score == 1.0 else "Some checks failed."
+    )
