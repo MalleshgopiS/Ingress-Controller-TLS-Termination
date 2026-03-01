@@ -2,7 +2,6 @@
 set -e
 
 NS="ingress-system"
-DEPLOYMENT="ingress-controller"
 APP_LABEL="app=ingress-controller"
 CONFIGMAP="ingress-nginx-config"
 
@@ -23,7 +22,7 @@ kubectl delete pod "$OLD_POD" -n "$NS" --wait=false
 
 echo "Waiting for new pod..."
 
-for i in {1..90}; do
+for i in {1..120}; do
   NEW_POD=$(kubectl get pods -n "$NS" -l "$APP_LABEL" \
     -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
 
@@ -35,29 +34,36 @@ for i in {1..90}; do
   sleep 2
 done
 
-echo "Waiting for pod to reach Running..."
+echo "Waiting for pod phase Running..."
 
 for i in {1..120}; do
-  STATUS=$(kubectl get pod "$NEW_POD" -n "$NS" \
+  PHASE=$(kubectl get pod "$NEW_POD" -n "$NS" \
     -o jsonpath='{.status.phase}' 2>/dev/null || true)
 
-  if [[ "$STATUS" == "Running" ]]; then
-    echo "Pod is Running"
+  if [[ "$PHASE" == "Running" ]]; then
     break
   fi
 
   sleep 2
 done
 
-echo "Waiting for deployment to report Available..."
+echo "Waiting for container Ready condition..."
 
-kubectl wait --for=condition=available deployment/"$DEPLOYMENT" \
-  -n "$NS" --timeout=180s
+for i in {1..120}; do
+  READY=$(kubectl get pod "$NEW_POD" -n "$NS" \
+    -o jsonpath='{.status.containerStatuses[0].ready}' 2>/dev/null || true)
+
+  if [[ "$READY" == "true" ]]; then
+    echo "Pod is Ready"
+    break
+  fi
+
+  sleep 2
+done
 
 echo "Stabilizing..."
-sleep 20
+sleep 25
 
-echo "Final pod state:"
 kubectl get pods -n "$NS"
 
 echo "✅ Fix applied successfully."
