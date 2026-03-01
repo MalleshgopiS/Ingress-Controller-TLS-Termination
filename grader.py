@@ -9,10 +9,11 @@ CONFIGMAP = "ingress-nginx-config"
 
 
 # --------------------------------------------------
-# Helpers
+# Helper Utilities
 # --------------------------------------------------
 
 def run(cmd: str) -> str:
+    """Run shell command and return stripped output."""
     try:
         out = subprocess.check_output(
             cmd, shell=True, stderr=subprocess.DEVNULL
@@ -23,6 +24,7 @@ def run(cmd: str) -> str:
 
 
 def wait_until(fn, timeout=180, interval=5):
+    """Wait until condition returns True or timeout."""
     start = time.time()
     while time.time() - start < timeout:
         if fn():
@@ -32,6 +34,7 @@ def wait_until(fn, timeout=180, interval=5):
 
 
 def get_pod():
+    """Return ingress-controller pod name."""
     cmd = (
         f"kubectl get pods -n {NS} "
         "-l app=ingress-controller "
@@ -41,10 +44,11 @@ def get_pod():
 
 
 # --------------------------------------------------
-# Checks (UNCHANGED)
+# Validation Checks (LOGIC UNCHANGED)
 # --------------------------------------------------
 
 def check_uid():
+    """Ensure deployment UID unchanged."""
     current = run(
         f"kubectl get deploy {DEPLOY} -n {NS} "
         "-o jsonpath='{.metadata.uid}'"
@@ -60,6 +64,7 @@ def check_uid():
 
 
 def check_memory():
+    """Ensure memory limit remains 128Mi."""
     mem = run(
         f"kubectl get deploy {DEPLOY} -n {NS} "
         "-o jsonpath='{.spec.template.spec.containers[0].resources.limits.memory}'"
@@ -68,6 +73,7 @@ def check_memory():
 
 
 def check_image():
+    """Ensure nginx image unchanged."""
     image = run(
         f"kubectl get deploy {DEPLOY} -n {NS} "
         "-o jsonpath='{.spec.template.spec.containers[0].image}'"
@@ -76,6 +82,7 @@ def check_image():
 
 
 def check_timeout():
+    """Validate nginx ssl-session-timeout format."""
     timeout = run(
         f"kubectl get configmap {CONFIGMAP} -n {NS} "
         "-o jsonpath='{.data.ssl-session-timeout}'"
@@ -86,6 +93,7 @@ def check_timeout():
 
 
 def check_ready():
+    """Ensure deployment becomes ready."""
     def ready():
         val = run(
             f"kubectl get deploy {DEPLOY} -n {NS} "
@@ -97,6 +105,7 @@ def check_ready():
 
 
 def check_nginx_serving():
+    """Verify nginx serves HTTP content."""
     pod = get_pod()
     if not pod:
         return False
@@ -111,6 +120,7 @@ def check_nginx_serving():
 
 
 def check_no_restarts():
+    """Ensure container restart count remains stable."""
     pod = get_pod()
     if not pod:
         return False
@@ -129,10 +139,10 @@ def check_no_restarts():
 
 
 # --------------------------------------------------
-# ✅ APEX ENTRYPOINT (FINAL FIX)
+# Apex-Compatible Entry Point
 # --------------------------------------------------
 
-def grade(task_dir=None):
+def grade(task_dir: str):
     checks = {
         "uid_preserved": check_uid,
         "memory_preserved": check_memory,
@@ -151,12 +161,15 @@ def grade(task_dir=None):
         subscores[name] = 1.0 if result else 0.0
         weights[name] = 1.0
 
-    final_score = sum(subscores.values()) / len(subscores)
+    mean_score = sum(subscores.values()) / len(subscores)
 
-    # ✅ RETURN DICT (Apex expects this)
     return {
-        "score": final_score,
+        "score": mean_score,
         "subscores": subscores,
         "weights": weights,
-        "feedback": "All checks passed." if final_score == 1.0 else "Some checks failed."
+        "feedback": (
+            "All checks passed."
+            if mean_score == 1.0
+            else "One or more checks failed."
+        ),
     }
