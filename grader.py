@@ -3,9 +3,6 @@ import subprocess
 import re
 import time
 
-# ✅ REQUIRED BY APEX
-from apex_arena.grading import GradeResult
-
 NS = "ingress-system"
 DEPLOY = "ingress-controller"
 CONFIGMAP = "ingress-nginx-config"
@@ -44,7 +41,7 @@ def get_pod():
 
 
 # --------------------------------------------------
-# Checks (UNCHANGED LOGIC)
+# Checks (UNCHANGED)
 # --------------------------------------------------
 
 def check_uid():
@@ -132,10 +129,10 @@ def check_no_restarts():
 
 
 # --------------------------------------------------
-# ✅ APEX ENTRYPOINT (FIX ONLY)
+# ✅ APEX ENTRYPOINT (FINAL FIX)
 # --------------------------------------------------
 
-def grade(task_dir: str):
+def grade(task_dir=None):
     checks = {
         "uid_preserved": check_uid,
         "memory_preserved": check_memory,
@@ -154,11 +151,12 @@ def grade(task_dir: str):
         subscores[name] = 1.0 if result else 0.0
         weights[name] = 1.0
 
-    score = sum(subscores.values()) / len(subscores)
+    final_score = sum(subscores.values()) / len(subscores)
 
-    return GradeResult(
-        score=score,
-        subscores=subscores,
-        weights=weights,
-        feedback="All checks passed." if score == 1.0 else "One or more checks failed.",
-    )
+    # ✅ RETURN DICT (Apex expects this)
+    return {
+        "score": final_score,
+        "subscores": subscores,
+        "weights": weights,
+        "feedback": "All checks passed." if final_score == 1.0 else "Some checks failed."
+    }
