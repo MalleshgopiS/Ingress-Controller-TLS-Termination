@@ -192,12 +192,22 @@ def grade(task_dir=None):
     weights["restart_stable"] = 1.0
 
     # --------------------------------------------------
-    # Final Mean Score
+    # Final Mean Score (Normalized Total Weight = 1.0)
     # --------------------------------------------------
+
+    total_checks = len(subscores)
+
+    # Normalize weights so total weight = 1.0
+    if total_checks > 0:
+        normalized_weight = 1.0 / total_checks
+        for k in weights:
+            weights[k] = normalized_weight
+
     total_weight = sum(weights.values())
     earned = sum(weights[k] for k, v in subscores.items() if v)
 
     final_score = earned / total_weight if total_weight else 0.0
-    feedback = f"{int(earned)}/{int(total_weight)} checks passed."
+
+    feedback = f"{sum(1 for v in subscores.values() if v)}/{total_checks} checks passed."
 
     return GradeResult(final_score, subscores, weights, feedback)
