@@ -2,8 +2,21 @@
 set -e
 
 NS="ingress-system"
+DEPLOYMENT="ingress-controller"
 APP_LABEL="app=ingress-controller"
 CONFIGMAP="ingress-nginx-config"
+
+echo "Fixing image pull policy (Nebula offline safety)..."
+
+kubectl patch deployment "$DEPLOYMENT" -n "$NS" \
+  --type='json' \
+  -p='[
+    {
+      "op":"replace",
+      "path":"/spec/template/spec/containers/0/imagePullPolicy",
+      "value":"IfNotPresent"
+    }
+  ]' || true
 
 echo "Patching ConfigMap..."
 
@@ -30,36 +43,13 @@ for i in {1..120}; do
     echo "New pod detected: $NEW_POD"
     break
   fi
-
   sleep 2
 done
 
-echo "Waiting for pod phase Running..."
+echo "Waiting for pod Ready..."
 
-for i in {1..120}; do
-  PHASE=$(kubectl get pod "$NEW_POD" -n "$NS" \
-    -o jsonpath='{.status.phase}' 2>/dev/null || true)
-
-  if [[ "$PHASE" == "Running" ]]; then
-    break
-  fi
-
-  sleep 2
-done
-
-echo "Waiting for container Ready condition..."
-
-for i in {1..120}; do
-  READY=$(kubectl get pod "$NEW_POD" -n "$NS" \
-    -o jsonpath='{.status.containerStatuses[0].ready}' 2>/dev/null || true)
-
-  if [[ "$READY" == "true" ]]; then
-    echo "Pod is Ready"
-    break
-  fi
-
-  sleep 2
-done
+kubectl wait --for=condition=Ready pod/"$NEW_POD" \
+  -n "$NS" --timeout=180s
 
 echo "Stabilizing..."
 sleep 25
