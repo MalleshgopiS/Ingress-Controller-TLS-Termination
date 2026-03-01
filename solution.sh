@@ -1,52 +1,29 @@
-#!/usr/bin/env bash
+#!/bin/bash
 set -e
 
-NS="ingress-system"
-APP_LABEL="app=ingress-controller"
+NAMESPACE="ingress-system"
+DEPLOYMENT="ingress-controller"
+CONFIGMAP="ingress-nginx-config"
 
 echo "Patching ConfigMap..."
 
-kubectl patch configmap ingress-nginx-config \
-  -n $NS \
+kubectl patch configmap "$CONFIGMAP" -n "$NAMESPACE" \
   --type merge \
   -p '{"data":{"ssl-session-timeout":"10m"}}'
 
-echo "Deleting existing pod to reload configuration..."
+echo "Restarting deployment safely..."
+kubectl rollout restart deployment/"$DEPLOYMENT" -n "$NAMESPACE"
 
-OLD_POD=$(kubectl get pods -n $NS -l $APP_LABEL \
-  -o jsonpath='{.items[0].metadata.name}')
+echo "Waiting for rollout..."
+kubectl rollout status deployment/"$DEPLOYMENT" -n "$NAMESPACE" --timeout=180s
 
-kubectl delete pod "$OLD_POD" -n $NS --wait=false
-
-echo "Waiting for new pod to be created..."
-
-for i in {1..60}; do
-  NEW_POD=$(kubectl get pods -n $NS -l $APP_LABEL \
-    -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
-
-  if [[ -n "$NEW_POD" && "$NEW_POD" != "$OLD_POD" ]]; then
-    echo "New pod detected: $NEW_POD"
-    break
-  fi
-
-  sleep 2
-done
-
-echo "Waiting for pod to reach Running phase..."
-
-for i in {1..90}; do
-  STATUS=$(kubectl get pod "$NEW_POD" -n $NS \
-    -o jsonpath='{.status.phase}' 2>/dev/null || true)
-
-  if [[ "$STATUS" == "Running" ]]; then
-    echo "Pod is Running"
-    break
-  fi
-
-  sleep 2
-done
+echo "Waiting for deployment availability..."
+kubectl wait --for=condition=available deployment/"$DEPLOYMENT" \
+  -n "$NAMESPACE" --timeout=180s
 
 echo "Stabilizing..."
-sleep 15
+sleep 20
 
-echo "✅ Fix applied successfully."
+kubectl get pods -n "$NAMESPACE"
+
+echo "Solution complete."
