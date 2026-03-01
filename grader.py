@@ -14,7 +14,6 @@ CONFIGMAP = "ingress-nginx-config"
 # --------------------------------------------------
 
 def run(cmd: str) -> str:
-    """Run shell command and return stdout."""
     try:
         out = subprocess.check_output(
             cmd, shell=True, stderr=subprocess.DEVNULL
@@ -25,7 +24,6 @@ def run(cmd: str) -> str:
 
 
 def wait_until(fn, timeout=180, interval=5):
-    """Poll until condition becomes True."""
     start = time.time()
     while time.time() - start < timeout:
         if fn():
@@ -35,7 +33,6 @@ def wait_until(fn, timeout=180, interval=5):
 
 
 def get_pod():
-    """Return ingress-controller pod name."""
     cmd = (
         f"kubectl get pods -n {NS} "
         "-l app=ingress-controller "
@@ -43,13 +40,12 @@ def get_pod():
     )
     return run(cmd).strip("'")
 
+
 # --------------------------------------------------
 # Checks
 # --------------------------------------------------
 
-
 def check_uid():
-    """Ensure deployment UID unchanged."""
     current = run(
         f"kubectl get deploy {DEPLOY} -n {NS} "
         "-o jsonpath='{.metadata.uid}'"
@@ -65,7 +61,6 @@ def check_uid():
 
 
 def check_memory():
-    """Ensure memory limit remains exactly 128Mi."""
     mem = run(
         f"kubectl get deploy {DEPLOY} -n {NS} "
         "-o jsonpath='{.spec.template.spec.containers[0].resources.limits.memory}'"
@@ -75,7 +70,6 @@ def check_memory():
 
 
 def check_image():
-    """Ensure nginx image unchanged."""
     image = run(
         f"kubectl get deploy {DEPLOY} -n {NS} "
         "-o jsonpath='{.spec.template.spec.containers[0].image}'"
@@ -85,7 +79,6 @@ def check_image():
 
 
 def check_timeout():
-    """Validate ssl-session-timeout uses valid nginx duration."""
     timeout = run(
         f"kubectl get configmap {CONFIGMAP} -n {NS} "
         "-o jsonpath='{.data.ssl-session-timeout}'"
@@ -96,7 +89,6 @@ def check_timeout():
 
 
 def check_ready():
-    """Verify deployment becomes Ready."""
     def ready():
         val = run(
             f"kubectl get deploy {DEPLOY} -n {NS} "
@@ -108,7 +100,6 @@ def check_ready():
 
 
 def check_nginx_serving():
-    """Verify nginx serves HTTP 200 responses."""
     pod = get_pod()
     if not pod:
         return False
@@ -124,7 +115,6 @@ def check_nginx_serving():
 
 
 def check_no_restarts():
-    """Ensure container restart count remains stable."""
     pod = get_pod()
     if not pod:
         return False
@@ -143,39 +133,45 @@ def check_no_restarts():
 
 
 # --------------------------------------------------
-# Grading
+# Apex Required Entry Function
 # --------------------------------------------------
 
-checks = {
-    "uid_preserved": check_uid,
-    "memory_preserved": check_memory,
-    "image_preserved": check_image,
-    "timeout_valid": check_timeout,
-    "deployment_ready": check_ready,
-    "nginx_serving": check_nginx_serving,
-    "no_restarts": check_no_restarts,
-}
+def grade():
+    checks = {
+        "uid_preserved": check_uid,
+        "memory_preserved": check_memory,
+        "image_preserved": check_image,
+        "timeout_valid": check_timeout,
+        "deployment_ready": check_ready,
+        "nginx_serving": check_nginx_serving,
+        "no_restarts": check_no_restarts,
+    }
 
-subscores = {}
-weights = {}
+    subscores = {}
+    weights = {}
 
-for name, fn in checks.items():
-    result = fn()
-    subscores[name] = 1.0 if result else 0.0
-    weights[name] = 1.0
+    for name, fn in checks.items():
+        result = fn()
+        subscores[name] = 1.0 if result else 0.0
+        weights[name] = 1.0
 
-# mean score (Apex expects float 0–1)
-score = sum(subscores.values()) / len(subscores)
+    score = sum(subscores.values()) / len(subscores)
 
-output = {
-    "score": score,
-    "subscores": subscores,   # MUST be dict (fixes Apex crash)
-    "weights": weights,
-    "feedback": (
-        "All checks passed."
-        if score == 1.0
-        else "One or more checks failed."
-    ),
-}
+    return {
+        "score": score,
+        "subscores": subscores,
+        "weights": weights,
+        "feedback": (
+            "All checks passed."
+            if score == 1.0
+            else "One or more checks failed."
+        ),
+    }
 
-print(json.dumps(output))
+
+# --------------------------------------------------
+# Allow standalone execution
+# --------------------------------------------------
+
+if __name__ == "__main__":
+    print(json.dumps(grade()))
