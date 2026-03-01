@@ -37,7 +37,7 @@ success_criteria:
   - Deployment becomes Ready.
   - nginx serves HTTP 200 responses.
   - Container restart count remains stable.
-  - ssl-session-timeout` is a valid non-zero nginx duration.
+  - `ssl-session-timeout` is a valid non-zero nginx duration.
 
 notes: |
   Valid nginx duration examples include:
