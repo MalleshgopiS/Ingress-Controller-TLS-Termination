@@ -1,11 +1,4 @@
 #!/usr/bin/env python3
-"""
-Ingress Controller TLS Termination Grader
-
-All checks contribute equally.
-Each check verifies documented constraints and success criteria.
-"""
-
 import subprocess
 import time
 import re
@@ -16,34 +9,21 @@ DEPLOY = "ingress-controller"
 CM = "ingress-nginx-config"
 
 
-# --------------------------------------------------
-# Lightweight Apex-Compatible GradeResult
-# --------------------------------------------------
-
-class GradeResult:
-    def __init__(self, score, subscores, feedback):
+class Result:
+    def __init__(self, score):
         self.score = score
-        self.subscores = subscores
-        self.feedback = feedback
 
 
-# --------------------------------------------------
-# Helpers
-# --------------------------------------------------
-
-def run(cmd: str) -> str:
-    """Run shell command safely and return output."""
+def run(cmd):
     try:
-        out = subprocess.check_output(
+        return subprocess.check_output(
             cmd, shell=True, stderr=subprocess.DEVNULL
-        )
-        return out.decode().strip()
+        ).decode().strip()
     except Exception:
         return ""
 
 
 def wait_until(fn, timeout=180, interval=5):
-    """Wait until condition becomes true."""
     start = time.time()
     while time.time() - start < timeout:
         if fn():
@@ -52,13 +32,11 @@ def wait_until(fn, timeout=180, interval=5):
     return False
 
 
-def stabilize_cluster():
-    """Allow Kubernetes cluster to stabilize."""
+def stabilize():
     time.sleep(25)
 
 
 def get_pod():
-    """Return ingress controller pod name."""
     return run(
         f"kubectl get pods -n {NS} "
         f"-l app=ingress-controller "
@@ -66,62 +44,52 @@ def get_pod():
     )
 
 
-# --------------------------------------------------
-# Checks
-# --------------------------------------------------
+def grade(task_dir=None):
 
-def check_uid():
-    """Ensure deployment UID unchanged."""
+    stabilize()
+
+    checks = []
+
+    # UID preserved
     original = run("cat /grader/original_uid")
     current = run(
         f"kubectl get deploy {DEPLOY} -n {NS} "
         "-o jsonpath='{.metadata.uid}'"
     )
-    return original != "" and original == current
+    checks.append(original and original == current)
 
-
-def check_memory():
-    """Ensure memory limit remains 128Mi."""
+    # Memory preserved
     mem = run(
         f"kubectl get deploy {DEPLOY} -n {NS} "
         "-o jsonpath='{.spec.template.spec.containers[0].resources.limits.memory}'"
     )
-    return mem == "128Mi"
+    checks.append(mem == "128Mi")
 
-
-def check_image():
-    """Ensure nginx image unchanged."""
+    # Image preserved
     image = run(
         f"kubectl get deploy {DEPLOY} -n {NS} "
         "-o jsonpath='{.spec.template.spec.containers[0].image}'"
     )
-    return image == "nginx:1.25.3"
+    checks.append(image == "nginx:1.25.3")
 
-
-def check_timeout():
-    """Validate ssl-session-timeout format."""
+    # Timeout valid
     value = run(
         f"kubectl get cm {CM} -n {NS} "
         "-o jsonpath='{.data.ssl-session-timeout}'"
     )
     pattern = r"^[1-9][0-9]*(s|m|h|d|w|M|y)$"
-    return re.match(pattern, value or "") is not None
+    checks.append(re.match(pattern, value or "") is not None)
 
-
-def check_ready():
-    """Ensure deployment becomes ready."""
+    # Deployment ready
     def ready():
-        replicas = run(
+        return run(
             f"kubectl get deploy {DEPLOY} -n {NS} "
             "-o jsonpath='{.status.readyReplicas}'"
-        )
-        return replicas == "1"
+        ) == "1"
 
-    return wait_until(ready)
+    checks.append(wait_until(ready))
 
-
-def check_nginx_serving():
-    """Verify nginx serves HTML via port-forward."""
+    # Nginx serving
     try:
         pf = subprocess.Popen(
             f"kubectl port-forward -n {NS} svc/ingress-controller 18080:80",
@@ -129,62 +97,29 @@ def check_nginx_serving():
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
-
         time.sleep(5)
-
         html = run("curl -s http://localhost:18080")
-
         pf.terminate()
-
-        return "<html" in (html or "").lower()
+        checks.append("<html" in (html or "").lower())
     except Exception:
-        return False
+        checks.append(False)
 
-
-def check_no_restarts():
-    """Ensure restart count remains stable."""
+    # No restarts
     pod = get_pod()
-    if not pod:
-        return False
+    if pod:
+        before = run(
+            f"kubectl get pod {pod} -n {NS} "
+            "-o jsonpath='{.status.containerStatuses[0].restartCount}'"
+        )
+        time.sleep(60)
+        after = run(
+            f"kubectl get pod {pod} -n {NS} "
+            "-o jsonpath='{.status.containerStatuses[0].restartCount}'"
+        )
+        checks.append(before == after)
+    else:
+        checks.append(False)
 
-    before = run(
-        f"kubectl get pod {pod} -n {NS} "
-        "-o jsonpath='{.status.containerStatuses[0].restartCount}'"
-    )
+    score = sum(1 for c in checks if c) / len(checks)
 
-    time.sleep(60)
-
-    after = run(
-        f"kubectl get pod {pod} -n {NS} "
-        "-o jsonpath='{.status.containerStatuses[0].restartCount}'"
-    )
-
-    return before == after
-
-
-# --------------------------------------------------
-# Main Grade Function
-# --------------------------------------------------
-
-def grade(task_dir=None):
-
-    stabilize_cluster()
-
-    checks = {
-        "uid_preserved": check_uid(),
-        "memory_preserved": check_memory(),
-        "image_preserved": check_image(),
-        "timeout_valid": check_timeout(),
-        "deployment_ready": check_ready(),
-        "nginx_serving": check_nginx_serving(),
-        "no_restarts": check_no_restarts(),
-    }
-
-    subscores = {k: (1.0 if v else 0.0) for k, v in checks.items()}
-    score = sum(subscores.values()) / len(subscores)
-
-    return GradeResult(
-        score=score,
-        subscores=subscores,
-        feedback="All checks passed." if score == 1.0 else "Some checks failed."
-    )
+    return Result(score)
