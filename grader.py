@@ -3,17 +3,29 @@ import subprocess
 import re
 import time
 
+
 NS = "ingress-system"
 DEPLOY = "ingress-controller"
 CONFIGMAP = "ingress-nginx-config"
 
 
 # --------------------------------------------------
-# Helper Utilities
+# Apex-compatible result object (FIX)
+# --------------------------------------------------
+
+class GradeResult:
+    def __init__(self, score, subscores, weights, feedback):
+        self.score = score
+        self.subscores = subscores
+        self.weights = weights
+        self.feedback = feedback
+
+
+# --------------------------------------------------
+# Helpers
 # --------------------------------------------------
 
 def run(cmd: str) -> str:
-    """Run shell command and return stripped output."""
     try:
         out = subprocess.check_output(
             cmd, shell=True, stderr=subprocess.DEVNULL
@@ -24,7 +36,6 @@ def run(cmd: str) -> str:
 
 
 def wait_until(fn, timeout=180, interval=5):
-    """Wait until condition returns True or timeout."""
     start = time.time()
     while time.time() - start < timeout:
         if fn():
@@ -34,21 +45,18 @@ def wait_until(fn, timeout=180, interval=5):
 
 
 def get_pod():
-    """Return ingress-controller pod name."""
-    cmd = (
+    return run(
         f"kubectl get pods -n {NS} "
         "-l app=ingress-controller "
         "-o jsonpath='{.items[0].metadata.name}'"
-    )
-    return run(cmd).strip("'")
+    ).strip("'")
 
 
 # --------------------------------------------------
-# Validation Checks (LOGIC UNCHANGED)
+# Checks (LOGIC UNCHANGED)
 # --------------------------------------------------
 
 def check_uid():
-    """Ensure deployment UID unchanged."""
     current = run(
         f"kubectl get deploy {DEPLOY} -n {NS} "
         "-o jsonpath='{.metadata.uid}'"
@@ -64,7 +72,6 @@ def check_uid():
 
 
 def check_memory():
-    """Ensure memory limit remains 128Mi."""
     mem = run(
         f"kubectl get deploy {DEPLOY} -n {NS} "
         "-o jsonpath='{.spec.template.spec.containers[0].resources.limits.memory}'"
@@ -73,7 +80,6 @@ def check_memory():
 
 
 def check_image():
-    """Ensure nginx image unchanged."""
     image = run(
         f"kubectl get deploy {DEPLOY} -n {NS} "
         "-o jsonpath='{.spec.template.spec.containers[0].image}'"
@@ -82,7 +88,6 @@ def check_image():
 
 
 def check_timeout():
-    """Validate nginx ssl-session-timeout format."""
     timeout = run(
         f"kubectl get configmap {CONFIGMAP} -n {NS} "
         "-o jsonpath='{.data.ssl-session-timeout}'"
@@ -93,7 +98,6 @@ def check_timeout():
 
 
 def check_ready():
-    """Ensure deployment becomes ready."""
     def ready():
         val = run(
             f"kubectl get deploy {DEPLOY} -n {NS} "
@@ -105,22 +109,19 @@ def check_ready():
 
 
 def check_nginx_serving():
-    """Verify nginx serves HTTP content."""
     pod = get_pod()
     if not pod:
         return False
 
-    cmd = (
+    out = run(
         f"kubectl exec -n {NS} {pod} -- "
         "sh -c 'wget -qO- http://127.0.0.1 2>/dev/null || curl -s http://127.0.0.1'"
     )
 
-    out = run(cmd)
     return "<html" in out.lower()
 
 
 def check_no_restarts():
-    """Ensure container restart count remains stable."""
     pod = get_pod()
     if not pod:
         return False
@@ -139,10 +140,11 @@ def check_no_restarts():
 
 
 # --------------------------------------------------
-# Apex-Compatible Entry Point
+# Apex Entry
 # --------------------------------------------------
 
 def grade(task_dir: str):
+
     checks = {
         "uid_preserved": check_uid,
         "memory_preserved": check_memory,
@@ -163,13 +165,10 @@ def grade(task_dir: str):
 
     mean_score = sum(subscores.values()) / len(subscores)
 
-    return {
-        "score": mean_score,
-        "subscores": subscores,
-        "weights": weights,
-        "feedback": (
-            "All checks passed."
-            if mean_score == 1.0
-            else "One or more checks failed."
-        ),
-    }
+    # ⭐ RETURN OBJECT (NOT DICT)
+    return GradeResult(
+        score=mean_score,
+        subscores=subscores,
+        weights=weights,
+        feedback="All checks passed." if mean_score == 1.0 else "Some checks failed.",
+    )
