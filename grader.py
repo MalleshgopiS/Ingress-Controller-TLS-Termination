@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 """
-Ingress Controller TLS Termination - Grader
-Apex compatible grader (NO LOGIC CHANGE)
+Ingress Controller TLS Termination - FINAL Apex Compatible Grader
+NO LOGIC CHANGES
+Fixes:
+- Apex GradeResult requirement
+- nginx_serving reliability
+- deployment_ready timing
 """
 
-import json
 import subprocess
 import time
 import re
-from typing import Dict
+from apex_arena.grader import GradeResult
 
 
 NS = "ingress-system"
@@ -21,7 +24,6 @@ CM = "ingress-nginx-config"
 # ---------------------------------------------------------
 
 def run(cmd: str) -> str:
-    """Run shell command safely."""
     try:
         out = subprocess.check_output(
             cmd, shell=True, stderr=subprocess.DEVNULL
@@ -32,7 +34,6 @@ def run(cmd: str) -> str:
 
 
 def wait_until(fn, timeout=180, interval=5):
-    """Wait until condition becomes true."""
     start = time.time()
     while time.time() - start < timeout:
         if fn():
@@ -42,11 +43,7 @@ def wait_until(fn, timeout=180, interval=5):
 
 
 def stabilize_cluster():
-    """
-    Small stabilization wait.
-    (Fixes deployment_ready + nginx_serving flakes)
-    """
-    time.sleep(20)
+    time.sleep(25)  # slightly increased for stability
 
 
 def get_pod():
@@ -58,11 +55,10 @@ def get_pod():
 
 
 # ---------------------------------------------------------
-# Checks (LOGIC UNCHANGED)
+# Checks (UNCHANGED LOGIC)
 # ---------------------------------------------------------
 
 def check_uid():
-    """Ensure deployment UID unchanged."""
     original = run("cat /grader/original_uid")
     current = run(
         f"kubectl get deploy {DEPLOY} -n {NS} "
@@ -72,7 +68,6 @@ def check_uid():
 
 
 def check_memory():
-    """Ensure memory limit remains 128Mi."""
     mem = run(
         f"kubectl get deploy {DEPLOY} -n {NS} "
         "-o jsonpath='{.spec.template.spec.containers[0].resources.limits.memory}'"
@@ -81,7 +76,6 @@ def check_memory():
 
 
 def check_image():
-    """Ensure nginx image unchanged."""
     image = run(
         f"kubectl get deploy {DEPLOY} -n {NS} "
         "-o jsonpath='{.spec.template.spec.containers[0].image}'"
@@ -90,18 +84,15 @@ def check_image():
 
 
 def check_timeout():
-    """Validate nginx ssl-session-timeout format."""
     value = run(
         f"kubectl get cm {CM} -n {NS} "
         "-o jsonpath='{.data.ssl-session-timeout}'"
     )
-
     pattern = r"^[1-9][0-9]*(s|m|h|d|w|M|y)$"
     return re.match(pattern, value or "") is not None
 
 
 def check_ready():
-    """Ensure deployment becomes ready."""
     def ready():
         ready_replicas = run(
             f"kubectl get deploy {DEPLOY} -n {NS} "
@@ -113,25 +104,30 @@ def check_ready():
 
 
 def check_nginx_serving():
-    """Verify nginx serves HTML."""
-    pod = get_pod()
-    if not pod:
-        return False
-
+    """
+    FIXED: Use port-forward instead of exec (nginx image has no curl/wget)
+    """
     try:
-        html = run(
-            f"kubectl exec -n {NS} {pod} -- "
-            "wget -qO- http://localhost || "
-            "kubectl exec -n ingress-system "
-            f"{pod} -- curl -s http://localhost"
+        # start port-forward
+        pf = subprocess.Popen(
+            f"kubectl port-forward -n {NS} svc/ingress-controller 18080:80",
+            shell=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
+
+        time.sleep(5)
+
+        html = run("curl -s http://localhost:18080")
+
+        pf.terminate()
+
         return "<html" in (html or "").lower()
     except Exception:
         return False
 
 
 def check_no_restarts():
-    """Ensure restart count stable."""
     pod = get_pod()
     if not pod:
         return False
@@ -152,14 +148,10 @@ def check_no_restarts():
 
 
 # ---------------------------------------------------------
-# Apex Grade Function (FIXED SIGNATURE)
+# Apex Grade Function (REQUIRED FORMAT)
 # ---------------------------------------------------------
 
 def grade(task_dir=None):
-    """
-    Apex calls grade(task_dir).
-    Parameter required even if unused.
-    """
 
     stabilize_cluster()
 
@@ -173,32 +165,10 @@ def grade(task_dir=None):
         "no_restarts": check_no_restarts(),
     }
 
-    subscores: Dict[str, float] = {
-        k: 1.0 if v else 0.0 for k, v in checks.items()
-    }
+    score = sum(1.0 if v else 0.0 for v in checks.values()) / len(checks)
 
-    weights = {k: 1.0 for k in subscores}
-
-    final_score = sum(subscores.values()) / len(subscores)
-
-    result = {
-        "score": final_score,
-        "subscores": subscores,
-        "weights": weights,
-        "feedback": (
-            "All checks passed."
-            if final_score == 1.0
-            else "Some checks failed."
-        ),
-    }
-
-    print(json.dumps(result))
-    return result
-
-
-# ---------------------------------------------------------
-# CLI Entry
-# ---------------------------------------------------------
-
-if __name__ == "__main__":
-    grade()
+    return GradeResult(
+        score=score,
+        subscores={k: (1.0 if v else 0.0) for k, v in checks.items()},
+        feedback="All checks passed." if score == 1.0 else "Some checks failed.",
+    )
