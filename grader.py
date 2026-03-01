@@ -19,15 +19,26 @@ import subprocess
 import time
 import re
 
+
 NS = "ingress-system"
 DEPLOY = "ingress-controller"
 CM = "ingress-nginx-config"
 
 
 # --------------------------------------------------
+# Apex REQUIRED result object
+# --------------------------------------------------
+class GradeResult:
+    def __init__(self, score, subscores, weights, feedback=""):
+        self.score = score
+        self.subscores = subscores
+        self.weights = weights
+        self.feedback = feedback
+
+
+# --------------------------------------------------
 # helpers
 # --------------------------------------------------
-
 def run(cmd):
     try:
         return subprocess.check_output(
@@ -37,7 +48,7 @@ def run(cmd):
         return ""
 
 
-def wait_until(fn, timeout=240, interval=5):
+def wait_until(fn, timeout=300, interval=5):
     start = time.time()
     while time.time() - start < timeout:
         if fn():
@@ -46,26 +57,20 @@ def wait_until(fn, timeout=240, interval=5):
     return False
 
 
-def stabilize():
-    # ⭐ IMPORTANT — Nebula needs longer stabilization
-    time.sleep(60)
-
-
 def get_pod():
     return run(
         f"kubectl get pods -n {NS} "
         f"-l app=ingress-controller "
-        "-o jsonpath='{.items[0].metadata.name}'"
+        f"-o jsonpath='{{.items[0].metadata.name}}'"
     )
 
 
 # --------------------------------------------------
 # grading
 # --------------------------------------------------
-
 def grade(task_dir=None):
 
-    stabilize()
+    time.sleep(60)  # stabilization for nebula snapshot
 
     subscores = {}
     weights = {}
@@ -76,84 +81,73 @@ def grade(task_dir=None):
         f"kubectl get deploy {DEPLOY} -n {NS} "
         "-o jsonpath='{.metadata.uid}'"
     )
-
     subscores["uid_preserved"] = original_uid == current_uid
-    weights["uid_preserved"] = 1
+    weights["uid_preserved"] = 1.0
 
-    # 2 memory preserved
+    # 2 Memory preserved
     memory = run(
         f"kubectl get deploy {DEPLOY} -n {NS} "
         "-o jsonpath='{.spec.template.spec.containers[0].resources.limits.memory}'"
     )
     subscores["memory_preserved"] = memory == "128Mi"
-    weights["memory_preserved"] = 1
+    weights["memory_preserved"] = 1.0
 
-    # 3 image preserved
+    # 3 Image preserved
     image = run(
         f"kubectl get deploy {DEPLOY} -n {NS} "
         "-o jsonpath='{.spec.template.spec.containers[0].image}'"
     )
     subscores["image_preserved"] = image == "nginx:1.25.3"
-    weights["image_preserved"] = 1
+    weights["image_preserved"] = 1.0
 
-    # 4 valid timeout
+    # 4 Valid timeout
     timeout_value = run(
         f"kubectl get cm {CM} -n {NS} "
         "-o jsonpath='{.data.ssl-session-timeout}'"
     )
 
     pattern = r"^[1-9][0-9]*(s|m|h|d|w|M|y)$"
-    subscores["valid_timeout"] = re.match(pattern, timeout_value or "") is not None
-    weights["valid_timeout"] = 1
+    subscores["valid_timeout"] = (
+        re.match(pattern, timeout_value or "") is not None
+    )
+    weights["valid_timeout"] = 1.0
 
-    # --------------------------------------------------
-    # 5 Deployment Available (FIXED)
-    # --------------------------------------------------
-
+    # 5 Deployment Available (FIXED CHECK)
     def deployment_available():
         return run(
             f"kubectl get deploy {DEPLOY} -n {NS} "
             "-o jsonpath='{.status.conditions[?(@.type==\"Available\")].status}'"
         ) == "True"
 
-    subscores["deployment_ready"] = wait_until(deployment_available, 300)
-    weights["deployment_ready"] = 1
+    subscores["deployment_ready"] = wait_until(deployment_available)
+    weights["deployment_ready"] = 1.0
 
-    # --------------------------------------------------
     # 6 nginx serving HTTP 200 (RETRY LOOP)
-    # --------------------------------------------------
-
     nginx_ok = False
+    pf = subprocess.Popen(
+        f"kubectl port-forward -n {NS} svc/{DEPLOY} 18080:80",
+        shell=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
 
-    try:
-        pf = subprocess.Popen(
-            f"kubectl port-forward -n {NS} svc/ingress-controller 18080:80",
-            shell=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+    time.sleep(8)
+
+    for _ in range(20):
+        code = run(
+            "curl -s -o /dev/null -w '%{http_code}' http://localhost:18080"
         )
+        if code == "200":
+            nginx_ok = True
+            break
+        time.sleep(3)
 
-        # retry up to 60s
-        for _ in range(20):
-            time.sleep(3)
-            code = run(
-                "curl -s -o /dev/null -w '%{http_code}' http://localhost:18080"
-            )
-            if code == "200":
-                nginx_ok = True
-                break
-
-        pf.terminate()
-    except Exception:
-        nginx_ok = False
+    pf.terminate()
 
     subscores["nginx_serving"] = nginx_ok
-    weights["nginx_serving"] = 1
+    weights["nginx_serving"] = 1.0
 
-    # --------------------------------------------------
-    # 7 restart stable
-    # --------------------------------------------------
-
+    # 7 Restart stable
     pod = get_pod()
     restart_stable = False
 
@@ -170,18 +164,18 @@ def grade(task_dir=None):
         restart_stable = before == after
 
     subscores["restart_stable"] = restart_stable
-    weights["restart_stable"] = 1
+    weights["restart_stable"] = 1.0
 
     # --------------------------------------------------
-    # scoring
+    # FINAL SCORE (MEAN)
     # --------------------------------------------------
-
     total = len(subscores)
-    score = sum(1 for v in subscores.values() if v) / total
+    for k in weights:
+        weights[k] = 1.0 / total
 
-    return {
-        "score": score,
-        "subscores": subscores,
-        "weights": {k: 1/total for k in subscores},
-        "feedback": f"{sum(subscores.values())}/{total} checks passed."
-    }
+    score = sum(weights[k] for k, v in subscores.items() if v)
+
+    feedback = f"{sum(subscores.values())}/{total} checks passed."
+
+    # ⭐ RETURN OBJECT (NOT DICT)
+    return GradeResult(score, subscores, weights, feedback)
