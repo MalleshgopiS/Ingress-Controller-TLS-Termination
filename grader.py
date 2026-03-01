@@ -1,28 +1,31 @@
 #!/usr/bin/env python3
-import json
 import subprocess
-import time
+import json
 import re
+import time
 
 NS = "ingress-system"
 DEPLOY = "ingress-controller"
 CONFIGMAP = "ingress-nginx-config"
 
 
-# -----------------------------
-# Utility Functions
-# -----------------------------
+# --------------------------------------------------
+# Helpers
+# --------------------------------------------------
 
-def run(cmd):
+def run(cmd: str) -> str:
+    """Run shell command and return stdout."""
     try:
-        return subprocess.check_output(
-            cmd, shell=True, text=True
-        ).strip()
+        out = subprocess.check_output(
+            cmd, shell=True, stderr=subprocess.DEVNULL
+        )
+        return out.decode().strip()
     except subprocess.CalledProcessError:
         return ""
 
 
-def wait_until(fn, timeout=180, interval=3):
+def wait_until(fn, timeout=180, interval=5):
+    """Poll until condition becomes True."""
     start = time.time()
     while time.time() - start < timeout:
         if fn():
@@ -31,124 +34,148 @@ def wait_until(fn, timeout=180, interval=3):
     return False
 
 
-def pod_exists():
-    pods = run(f"kubectl get pods -n {NS} -l app=ingress-controller --no-headers")
-    return pods != ""
+def get_pod():
+    """Return ingress-controller pod name."""
+    cmd = (
+        f"kubectl get pods -n {NS} "
+        "-l app=ingress-controller "
+        "-o jsonpath='{.items[0].metadata.name}'"
+    )
+    return run(cmd).strip("'")
 
+# --------------------------------------------------
+# Checks
+# --------------------------------------------------
 
-# -----------------------------
-# Check Functions
-# -----------------------------
 
 def check_uid():
-    """Ensure deployment was not recreated."""
-    original = run("cat /grader/original_uid")
+    """Ensure deployment UID unchanged."""
     current = run(
-        f"kubectl get deployment {DEPLOY} -n {NS} "
+        f"kubectl get deploy {DEPLOY} -n {NS} "
         "-o jsonpath='{.metadata.uid}'"
-    )
-    return original != "" and original == current
+    ).strip("'")
+
+    try:
+        with open("/grader/original_uid") as f:
+            original = f.read().strip()
+    except Exception:
+        return False
+
+    return current == original
 
 
 def check_memory():
     """Ensure memory limit remains exactly 128Mi."""
     mem = run(
-        f"kubectl get deployment {DEPLOY} -n {NS} "
+        f"kubectl get deploy {DEPLOY} -n {NS} "
         "-o jsonpath='{.spec.template.spec.containers[0].resources.limits.memory}'"
-    )
+    ).strip("'")
+
     return mem == "128Mi"
 
 
 def check_image():
-    """Ensure container image remains nginx:1.25.3."""
+    """Ensure nginx image unchanged."""
     image = run(
-        f"kubectl get deployment {DEPLOY} -n {NS} "
+        f"kubectl get deploy {DEPLOY} -n {NS} "
         "-o jsonpath='{.spec.template.spec.containers[0].image}'"
-    )
+    ).strip("'")
+
     return image == "nginx:1.25.3"
 
 
 def check_timeout():
-    """Validate ssl-session-timeout uses valid nginx duration format."""
-    value = run(
+    """Validate ssl-session-timeout uses valid nginx duration."""
+    timeout = run(
         f"kubectl get configmap {CONFIGMAP} -n {NS} "
         "-o jsonpath='{.data.ssl-session-timeout}'"
-    )
+    ).strip("'")
+
     pattern = r"^[1-9][0-9]*(s|m|h|d|w|M|y)$"
-    return re.match(pattern, value or "") is not None
+    return bool(re.match(pattern, timeout))
 
 
 def check_ready():
-    """Verify pod is Running and container is Ready."""
+    """Verify deployment becomes Ready."""
     def ready():
-        if not pod_exists():
-            return False
+        val = run(
+            f"kubectl get deploy {DEPLOY} -n {NS} "
+            "-o jsonpath='{.status.availableReplicas}'"
+        ).strip("'")
+        return val == "1"
 
-        phase = run(
-            f"kubectl get pods -n {NS} "
-            "-l app=ingress-controller "
-            "-o jsonpath='{.items[0].status.phase}'"
-        )
-
-        container_ready = run(
-            f"kubectl get pods -n {NS} "
-            "-l app=ingress-controller "
-            "-o jsonpath='{.items[0].status.containerStatuses[0].ready}'"
-        )
-
-        return phase == "Running" and container_ready.lower() == "true"
-
-    return wait_until(ready)
+    return wait_until(ready, timeout=180)
 
 
 def check_nginx_serving():
-    """Ensure nginx container is healthy (Ready state true)."""
-    return check_ready()
+    """Verify nginx serves HTTP 200 responses."""
+    pod = get_pod()
+    if not pod:
+        return False
+
+    cmd = (
+        f"kubectl exec -n {NS} {pod} -- "
+        "sh -c 'wget -qO- http://127.0.0.1 2>/dev/null || "
+        "curl -s http://127.0.0.1'"
+    )
+
+    out = run(cmd)
+    return "<html" in out.lower()
 
 
 def check_no_restarts():
-    """Ensure restart count remains stable over 60 seconds."""
-    if not pod_exists():
+    """Ensure container restart count remains stable."""
+    pod = get_pod()
+    if not pod:
         return False
 
-    before = run(
-        f"kubectl get pods -n {NS} "
-        "-l app=ingress-controller "
-        "-o jsonpath='{.items[0].status.containerStatuses[0].restartCount}'"
-    )
+    def restarts():
+        return run(
+            f"kubectl get pod {pod} -n {NS} "
+            "-o jsonpath='{.status.containerStatuses[0].restartCount}'"
+        ).strip("'")
 
+    before = restarts()
     time.sleep(60)
-
-    after = run(
-        f"kubectl get pods -n {NS} "
-        "-l app=ingress-controller "
-        "-o jsonpath='{.items[0].status.containerStatuses[0].restartCount}'"
-    )
+    after = restarts()
 
     return before == after
 
 
-# -----------------------------
-# Execute Checks
-# -----------------------------
+# --------------------------------------------------
+# Grading
+# --------------------------------------------------
 
 checks = {
-    "uid_preserved": check_uid(),
-    "memory_preserved": check_memory(),
-    "image_preserved": check_image(),
-    "timeout_valid": check_timeout(),
-    "deployment_ready": check_ready(),
-    "nginx_serving": check_nginx_serving(),
-    "no_restarts": check_no_restarts(),
+    "uid_preserved": check_uid,
+    "memory_preserved": check_memory,
+    "image_preserved": check_image,
+    "timeout_valid": check_timeout,
+    "deployment_ready": check_ready,
+    "nginx_serving": check_nginx_serving,
+    "no_restarts": check_no_restarts,
 }
 
-score = sum(checks.values()) / len(checks)
+subscores = {}
+weights = {}
 
-result = {
+for name, fn in checks.items():
+    result = fn()
+    subscores[name] = 1.0 if result else 0.0
+    weights[name] = 1.0
+
+# mean score (Apex expects float 0–1)
+score = sum(subscores.values()) / len(subscores)
+
+output = {
     "score": score,
-    "subscores": checks,
-    "weights": {k: 1.0 for k in checks},
-    "feedback": "All checks passed." if score == 1.0 else "One or more checks failed."
+    "subscores": subscores,   # MUST be dict (fixes Apex crash)
+    "weights": weights,
+    "feedback": (
+        "All checks passed."
+        if score == 1.0
+        else "One or more checks failed."
+    ),
 }
 
-print(json.dumps(result))
+print(json.dumps(output))

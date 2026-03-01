@@ -2,20 +2,20 @@ FROM us-central1-docker.pkg.dev/bespokelabs/nebula-devops-registry/nebula-devops
 
 USER root
 
-# Install jq with version pinning (fixes reproducibility issue)
+# Install jq (reproducible but repo-compatible pin)
 RUN apt-get update && \
-    apt-get install -y jq=1.6-2.1ubuntu3 && \
+    apt-get install -y --no-install-recommends jq=1.6* && \
     rm -rf /var/lib/apt/lists/*
 
-# Create grader directory explicitly (quality clarity)
+# Ensure grader directory exists
 RUN mkdir -p /grader
 
 # Copy task files
 COPY setup.sh /setup.sh
-COPY grader.py /grader/grader.py
 COPY solution.sh /solution.sh
+COPY grader.py /grader/grader.py
 
-# Ensure executables
+# Permissions
 RUN chmod +x /setup.sh /solution.sh
 
 CMD ["/bin/bash", "/setup.sh"]
