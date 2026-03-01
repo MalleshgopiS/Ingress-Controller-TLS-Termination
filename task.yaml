@@ -1,18 +1,22 @@
 id: ingress-controller-tls-termination
-title: Fix TLS Session Timeout in Ingress Controller
+
+title: Fix TLS Session Timeout Misconfiguration in Ingress Controller
+
 difficulty: hard
 
 description: |
-  The ingress controller is experiencing TLS session instability due to
-  an invalid nginx configuration.
+  A Kubernetes ingress controller is experiencing instability due to an
+  incorrect TLS session cache configuration.
 
-  The ConfigMap `ingress-nginx-config` currently sets:
+  The ConfigMap `ingress-nginx-config` contains the setting:
 
       ssl-session-timeout: "0"
 
-  This value is invalid and causes TLS sessions to terminate immediately.
+  A timeout value of "0" disables session expiration, allowing TLS sessions
+  to accumulate indefinitely and causing memory growth over time.
 
-  Your task is to fix the configuration WITHOUT recreating the Deployment.
+  Your task is to correct this configuration safely without disrupting
+  the existing Deployment.
 
 environment:
   namespace: ingress-system
@@ -20,19 +24,38 @@ environment:
   configmap: ingress-nginx-config
 
 objectives:
-  - Update ssl-session-timeout to a valid non-zero nginx duration.
+  - Update the ConfigMap `ingress-nginx-config`.
+  - Set `ssl-session-timeout` to a valid non-zero nginx duration.
 
 constraints:
   - Do NOT delete or recreate the Deployment.
-  - Deployment UID must remain unchanged.
-  - Container image must remain nginx:1.25.3.
-  - Memory limit must remain 128Mi.
+  - The Deployment UID must remain unchanged.
+  - The container image must remain `nginx:1.25.3`.
+  - The memory limit must remain exactly `128Mi`.
 
 success_criteria:
   - Deployment becomes Ready.
   - nginx serves HTTP 200 responses.
   - Container restart count remains stable.
+  - `ssl-session-timeout` is a valid non-zero nginx duration.
 
 notes: |
-  Valid nginx duration examples:
-    10s, 5m, 1h, 1d
+  Valid nginx duration examples include:
+
+      10s
+      5m
+      1h
+      1d
+
+  Format:
+
+      <positive_integer><unit>
+
+  Supported units:
+      s = seconds
+      m = minutes
+      h = hours
+      d = days
+      w = weeks
+      M = months
+      y = years
