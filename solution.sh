@@ -20,9 +20,7 @@ kubectl delete pod "$OLD_POD" -n $NS --wait=false
 
 echo "Waiting for new pod to be created..."
 
-NEW_POD=""
-
-for i in {1..90}; do
+for i in {1..60}; do
   NEW_POD=$(kubectl get pods -n $NS -l $APP_LABEL \
     -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
 
@@ -36,7 +34,7 @@ done
 
 echo "Waiting for pod to reach Running phase..."
 
-for i in {1..120}; do
+for i in {1..90}; do
   STATUS=$(kubectl get pod "$NEW_POD" -n $NS \
     -o jsonpath='{.status.phase}' 2>/dev/null || true)
 
@@ -48,17 +46,7 @@ for i in {1..120}; do
   sleep 2
 done
 
-echo "Waiting for pod Ready condition..."
-
-# ⭐ THIS IS THE CRITICAL FIX
-kubectl wait \
-  --for=condition=Ready pod/"$NEW_POD" \
-  -n $NS \
-  --timeout=300s
-
-echo "Stabilizing nginx routing..."
-sleep 25
-
-kubectl get pods -n $NS
+echo "Stabilizing..."
+sleep 20
 
 echo "✅ Fix applied successfully."
