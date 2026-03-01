@@ -1,4 +1,19 @@
 #!/usr/bin/env python3
+"""
+Grader for: Ingress Controller TLS Termination
+
+This grader validates that:
+1. Deployment UID is preserved (no recreation)
+2. Memory limit remains exactly 128Mi
+3. Container image remains nginx:1.25.3
+4. ssl-session-timeout is valid non-zero nginx duration
+5. Deployment becomes Ready
+6. Nginx serves HTTP 200 responses
+7. Container restart count remains stable
+
+Final score = mean of all 7 checks
+"""
+
 import subprocess
 import time
 import re
@@ -9,12 +24,24 @@ DEPLOY = "ingress-controller"
 CM = "ingress-nginx-config"
 
 
-class Result:
-    def __init__(self, score):
+class GradeResult:
+    """
+    Apex-compatible grading result object.
+
+    Attributes:
+        score (float): final mean score (0.0–1.0)
+        subscores (dict): individual check results
+        feedback (str): optional human-readable summary
+    """
+
+    def __init__(self, score, subscores, feedback=""):
         self.score = score
+        self.subscores = subscores
+        self.feedback = feedback
 
 
 def run(cmd):
+    """Run shell command safely and return output string."""
     try:
         return subprocess.check_output(
             cmd, shell=True, stderr=subprocess.DEVNULL
@@ -24,6 +51,10 @@ def run(cmd):
 
 
 def wait_until(fn, timeout=180, interval=5):
+    """
+    Poll a condition function until True or timeout.
+    Used for Kubernetes readiness stabilization.
+    """
     start = time.time()
     while time.time() - start < timeout:
         if fn():
@@ -33,10 +64,15 @@ def wait_until(fn, timeout=180, interval=5):
 
 
 def stabilize():
+    """
+    Initial stabilization delay to allow cluster state
+    to settle before running validation checks.
+    """
     time.sleep(25)
 
 
 def get_pod():
+    """Return ingress controller pod name."""
     return run(
         f"kubectl get pods -n {NS} "
         f"-l app=ingress-controller "
@@ -45,51 +81,71 @@ def get_pod():
 
 
 def grade(task_dir=None):
+    """
+    Execute all validation checks and compute final mean score.
+    """
 
     stabilize()
 
-    checks = []
+    subscores = {}
 
-    # UID preserved
-    original = run("cat /grader/original_uid")
-    current = run(
+    # --------------------------------------------------
+    # 1. Deployment UID preserved
+    # --------------------------------------------------
+    original_uid = run("cat /grader/original_uid")
+    current_uid = run(
         f"kubectl get deploy {DEPLOY} -n {NS} "
         "-o jsonpath='{.metadata.uid}'"
     )
-    checks.append(original and original == current)
+    subscores["uid_preserved"] = (
+        bool(original_uid) and original_uid == current_uid
+    )
 
-    # Memory preserved
-    mem = run(
+    # --------------------------------------------------
+    # 2. Memory limit unchanged (128Mi)
+    # --------------------------------------------------
+    memory = run(
         f"kubectl get deploy {DEPLOY} -n {NS} "
         "-o jsonpath='{.spec.template.spec.containers[0].resources.limits.memory}'"
     )
-    checks.append(mem == "128Mi")
+    subscores["memory_preserved"] = memory == "128Mi"
 
-    # Image preserved
+    # --------------------------------------------------
+    # 3. Image unchanged (nginx:1.25.3)
+    # --------------------------------------------------
     image = run(
         f"kubectl get deploy {DEPLOY} -n {NS} "
         "-o jsonpath='{.spec.template.spec.containers[0].image}'"
     )
-    checks.append(image == "nginx:1.25.3")
+    subscores["image_preserved"] = image == "nginx:1.25.3"
 
-    # Timeout valid
-    value = run(
+    # --------------------------------------------------
+    # 4. ssl-session-timeout valid non-zero nginx duration
+    # --------------------------------------------------
+    timeout_value = run(
         f"kubectl get cm {CM} -n {NS} "
         "-o jsonpath='{.data.ssl-session-timeout}'"
     )
     pattern = r"^[1-9][0-9]*(s|m|h|d|w|M|y)$"
-    checks.append(re.match(pattern, value or "") is not None)
+    subscores["valid_timeout"] = (
+        re.match(pattern, timeout_value or "") is not None
+    )
 
-    # Deployment ready
+    # --------------------------------------------------
+    # 5. Deployment Ready
+    # --------------------------------------------------
     def ready():
         return run(
             f"kubectl get deploy {DEPLOY} -n {NS} "
             "-o jsonpath='{.status.readyReplicas}'"
         ) == "1"
 
-    checks.append(wait_until(ready))
+    subscores["deployment_ready"] = wait_until(ready)
 
-    # Nginx serving
+    # --------------------------------------------------
+    # 6. Nginx serving HTTP 200
+    # --------------------------------------------------
+    nginx_serving = False
     try:
         pf = subprocess.Popen(
             f"kubectl port-forward -n {NS} svc/ingress-controller 18080:80",
@@ -98,13 +154,18 @@ def grade(task_dir=None):
             stderr=subprocess.DEVNULL,
         )
         time.sleep(5)
-        html = run("curl -s http://localhost:18080")
+        response = run("curl -s -o /dev/null -w '%{http_code}' http://localhost:18080")
         pf.terminate()
-        checks.append("<html" in (html or "").lower())
+        nginx_serving = response == "200"
     except Exception:
-        checks.append(False)
+        nginx_serving = False
 
-    # No restarts
+    subscores["nginx_serving"] = nginx_serving
+
+    # --------------------------------------------------
+    # 7. Restart count stable
+    # --------------------------------------------------
+    restart_stable = False
     pod = get_pod()
     if pod:
         before = run(
@@ -116,10 +177,17 @@ def grade(task_dir=None):
             f"kubectl get pod {pod} -n {NS} "
             "-o jsonpath='{.status.containerStatuses[0].restartCount}'"
         )
-        checks.append(before == after)
-    else:
-        checks.append(False)
+        restart_stable = before == after
 
-    score = sum(1 for c in checks if c) / len(checks)
+    subscores["restart_stable"] = restart_stable
 
-    return Result(score)
+    # --------------------------------------------------
+    # Final Mean Score
+    # --------------------------------------------------
+    total = len(subscores)
+    passed = sum(1 for v in subscores.values() if v)
+    final_score = passed / total if total else 0.0
+
+    feedback = f"{passed}/{total} checks passed."
+
+    return GradeResult(final_score, subscores, feedback)
