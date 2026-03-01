@@ -1,41 +1,35 @@
 #!/usr/bin/env python3
 import subprocess
-import re
 import time
-
+import re
+from dataclasses import dataclass
 
 NS = "ingress-system"
 DEPLOY = "ingress-controller"
-CONFIGMAP = "ingress-nginx-config"
+CM = "ingress-nginx-config"
 
 
 # --------------------------------------------------
-# Apex-compatible result object (FIX)
+# Apex compatible result object
 # --------------------------------------------------
-
+@dataclass
 class GradeResult:
-    def __init__(self, score, subscores, weights, feedback):
-        self.score = score
-        self.subscores = subscores
-        self.weights = weights
-        self.feedback = feedback
+    score: float
+    subscores: dict
+    weights: dict
+    feedback: str
 
 
 # --------------------------------------------------
 # Helpers
 # --------------------------------------------------
-
-def run(cmd: str) -> str:
-    try:
-        out = subprocess.check_output(
-            cmd, shell=True, stderr=subprocess.DEVNULL
-        )
-        return out.decode().strip()
-    except subprocess.CalledProcessError:
-        return ""
+def run(cmd):
+    """Run shell command and return stdout."""
+    return subprocess.check_output(cmd, shell=True, text=True).strip()
 
 
 def wait_until(fn, timeout=180, interval=5):
+    """Wait until condition becomes true."""
     start = time.time()
     while time.time() - start < timeout:
         if fn():
@@ -44,131 +38,145 @@ def wait_until(fn, timeout=180, interval=5):
     return False
 
 
-def get_pod():
-    return run(
-        f"kubectl get pods -n {NS} "
-        "-l app=ingress-controller "
-        "-o jsonpath='{.items[0].metadata.name}'"
-    ).strip("'")
+# --------------------------------------------------
+# STABILIZATION FIX (KEY CHANGE)
+# --------------------------------------------------
+def stabilize_cluster():
+    """
+    Allow k3s + nginx time to reload configmap.
+    Required in Apex snapshot environments.
+    """
+    time.sleep(20)
 
 
 # --------------------------------------------------
-# Checks (LOGIC UNCHANGED)
+# Checks
 # --------------------------------------------------
-
 def check_uid():
+    """Ensure deployment UID unchanged."""
+    original = open("/grader/original_uid").read().strip()
     current = run(
-        f"kubectl get deploy {DEPLOY} -n {NS} "
-        "-o jsonpath='{.metadata.uid}'"
-    ).strip("'")
-
-    try:
-        with open("/grader/original_uid") as f:
-            original = f.read().strip()
-    except Exception:
-        return False
-
-    return current == original
+        f"kubectl get deploy {DEPLOY} -n {NS} -o jsonpath='{{.metadata.uid}}'"
+    )
+    return original == current
 
 
 def check_memory():
+    """Ensure memory limit remains 128Mi."""
     mem = run(
         f"kubectl get deploy {DEPLOY} -n {NS} "
         "-o jsonpath='{.spec.template.spec.containers[0].resources.limits.memory}'"
-    ).strip("'")
+    )
     return mem == "128Mi"
 
 
 def check_image():
-    image = run(
+    """Ensure nginx image unchanged."""
+    img = run(
         f"kubectl get deploy {DEPLOY} -n {NS} "
         "-o jsonpath='{.spec.template.spec.containers[0].image}'"
-    ).strip("'")
-    return image == "nginx:1.25.3"
+    )
+    return img == "nginx:1.25.3"
 
 
 def check_timeout():
-    timeout = run(
-        f"kubectl get configmap {CONFIGMAP} -n {NS} "
+    """Validate nginx ssl-session-timeout format."""
+    val = run(
+        f"kubectl get cm {CM} -n {NS} "
         "-o jsonpath='{.data.ssl-session-timeout}'"
-    ).strip("'")
+    )
 
     pattern = r"^[1-9][0-9]*(s|m|h|d|w|M|y)$"
-    return bool(re.match(pattern, timeout))
+    return bool(re.match(pattern, val))
 
 
 def check_ready():
-    def ready():
-        val = run(
+    """Ensure deployment becomes ready."""
+    return wait_until(
+        lambda: run(
             f"kubectl get deploy {DEPLOY} -n {NS} "
-            "-o jsonpath='{.status.availableReplicas}'"
-        ).strip("'")
-        return val == "1"
-
-    return wait_until(ready)
+            "-o jsonpath='{.status.readyReplicas}'"
+        )
+        == "1"
+    )
 
 
 def check_nginx_serving():
-    pod = get_pod()
-    if not pod:
+    """Verify nginx serves HTML content."""
+    try:
+        pod = run(
+            f"kubectl get pods -n {NS} -l app=ingress-controller "
+            "-o jsonpath='{{.items[0].metadata.name}}'"
+        )
+
+        html = run(
+            f"kubectl exec -n {NS} {pod} -- "
+            "wget -qO- http://localhost"
+        )
+
+        return "<html" in html.lower()
+    except Exception:
         return False
-
-    out = run(
-        f"kubectl exec -n {NS} {pod} -- "
-        "sh -c 'wget -qO- http://127.0.0.1 2>/dev/null || curl -s http://127.0.0.1'"
-    )
-
-    return "<html" in out.lower()
 
 
 def check_no_restarts():
-    pod = get_pod()
-    if not pod:
-        return False
+    """Ensure restart count stable."""
+    pod = run(
+        f"kubectl get pods -n {NS} -l app=ingress-controller "
+        "-o jsonpath='{{.items[0].metadata.name}}'"
+    )
 
-    def restarts():
-        return run(
-            f"kubectl get pod {pod} -n {NS} "
-            "-o jsonpath='{.status.containerStatuses[0].restartCount}'"
-        ).strip("'")
+    before = run(
+        f"kubectl get pod {pod} -n {NS} "
+        "-o jsonpath='{.status.containerStatuses[0].restartCount}'"
+    )
 
-    before = restarts()
     time.sleep(60)
-    after = restarts()
+
+    after = run(
+        f"kubectl get pod {pod} -n {NS} "
+        "-o jsonpath='{.status.containerStatuses[0].restartCount}'"
+    )
 
     return before == after
 
 
 # --------------------------------------------------
-# Apex Entry
+# MAIN
 # --------------------------------------------------
-
-def grade(task_dir: str):
+def grade():
+    stabilize_cluster()   # ⭐ CRITICAL FIX
 
     checks = {
-        "uid_preserved": check_uid,
-        "memory_preserved": check_memory,
-        "image_preserved": check_image,
-        "timeout_valid": check_timeout,
-        "deployment_ready": check_ready,
-        "nginx_serving": check_nginx_serving,
-        "no_restarts": check_no_restarts,
+        "uid_preserved": check_uid(),
+        "memory_preserved": check_memory(),
+        "image_preserved": check_image(),
+        "timeout_valid": check_timeout(),
+        "deployment_ready": check_ready(),
+        "nginx_serving": check_nginx_serving(),
+        "no_restarts": check_no_restarts(),
     }
 
-    subscores = {}
-    weights = {}
-
-    for name, fn in checks.items():
-        result = fn()
-        subscores[name] = 1.0 if result else 0.0
-        weights[name] = 1.0
+    subscores = {k: float(v) for k, v in checks.items()}
+    weights = {k: 1.0 for k in checks}
 
     mean_score = sum(subscores.values()) / len(subscores)
 
-    # ⭐ RETURN OBJECT (NOT DICT)
     return GradeResult(
         score=mean_score,
         subscores=subscores,
         weights=weights,
-        feedback="All checks passed." if mean_score == 1.0 else "Some checks failed.",
+        feedback="All checks passed." if mean_score == 1 else "Some checks failed.",
+    )
+
+
+if __name__ == "__main__":
+    result = grade()
+    print(
+        {
+            "score": result.score,
+            "subscores": result.subscores,
+            "weights": result.weights,
+            "feedback": result.feedback,
+        }
     )
