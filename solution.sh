@@ -10,13 +10,19 @@ kubectl patch configmap ingress-nginx-config \
   --type merge \
   -p '{"data":{"ssl-session-timeout":"10m"}}'
 
-echo "Restarting deployment to reload config..."
+echo "Deleting pod to force reload (safe for 1-replica deployment)..."
 
-kubectl rollout restart deployment ingress-controller -n $NS
+POD=$(kubectl get pods -n $NS -l app=ingress-controller \
+  -o jsonpath='{.items[0].metadata.name}')
 
-echo "Waiting for rollout..."
+kubectl delete pod "$POD" -n $NS
 
-kubectl rollout status deployment ingress-controller -n $NS --timeout=180s
+echo "Waiting for new pod to be Ready..."
+
+kubectl wait --for=condition=ready pod \
+  -l app=ingress-controller \
+  -n $NS \
+  --timeout=180s
 
 echo "Sleeping briefly to stabilize..."
 sleep 10
