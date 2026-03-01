@@ -1,17 +1,14 @@
 #!/usr/bin/env python3
 """
-Ingress Controller TLS Termination - FINAL Apex Compatible Grader
-NO LOGIC CHANGES
-Fixes:
-- Apex GradeResult requirement
-- nginx_serving reliability
-- deployment_ready timing
+Ingress Controller TLS Termination Grader
+
+All checks contribute equally to final score.
+Each check verifies documented task constraints.
 """
 
 import subprocess
 import time
 import re
-from apex_arena.grader import GradeResult
 
 
 NS = "ingress-system"
@@ -19,11 +16,12 @@ DEPLOY = "ingress-controller"
 CM = "ingress-nginx-config"
 
 
-# ---------------------------------------------------------
+# --------------------------------------------------
 # Helpers
-# ---------------------------------------------------------
+# --------------------------------------------------
 
 def run(cmd: str) -> str:
+    """Run shell command safely and return output."""
     try:
         out = subprocess.check_output(
             cmd, shell=True, stderr=subprocess.DEVNULL
@@ -34,6 +32,7 @@ def run(cmd: str) -> str:
 
 
 def wait_until(fn, timeout=180, interval=5):
+    """Wait until condition becomes true."""
     start = time.time()
     while time.time() - start < timeout:
         if fn():
@@ -43,10 +42,12 @@ def wait_until(fn, timeout=180, interval=5):
 
 
 def stabilize_cluster():
-    time.sleep(25)  # slightly increased for stability
+    """Allow Kubernetes cluster to stabilize."""
+    time.sleep(25)
 
 
 def get_pod():
+    """Return ingress controller pod name."""
     return run(
         f"kubectl get pods -n {NS} "
         f"-l app=ingress-controller "
@@ -54,11 +55,12 @@ def get_pod():
     )
 
 
-# ---------------------------------------------------------
-# Checks (UNCHANGED LOGIC)
-# ---------------------------------------------------------
+# --------------------------------------------------
+# Checks
+# --------------------------------------------------
 
 def check_uid():
+    """Ensure deployment UID unchanged."""
     original = run("cat /grader/original_uid")
     current = run(
         f"kubectl get deploy {DEPLOY} -n {NS} "
@@ -68,6 +70,7 @@ def check_uid():
 
 
 def check_memory():
+    """Ensure memory limit remains 128Mi."""
     mem = run(
         f"kubectl get deploy {DEPLOY} -n {NS} "
         "-o jsonpath='{.spec.template.spec.containers[0].resources.limits.memory}'"
@@ -76,6 +79,7 @@ def check_memory():
 
 
 def check_image():
+    """Ensure nginx image unchanged."""
     image = run(
         f"kubectl get deploy {DEPLOY} -n {NS} "
         "-o jsonpath='{.spec.template.spec.containers[0].image}'"
@@ -84,6 +88,7 @@ def check_image():
 
 
 def check_timeout():
+    """Validate ssl-session-timeout format."""
     value = run(
         f"kubectl get cm {CM} -n {NS} "
         "-o jsonpath='{.data.ssl-session-timeout}'"
@@ -93,22 +98,20 @@ def check_timeout():
 
 
 def check_ready():
+    """Ensure deployment becomes ready."""
     def ready():
-        ready_replicas = run(
+        replicas = run(
             f"kubectl get deploy {DEPLOY} -n {NS} "
             "-o jsonpath='{.status.readyReplicas}'"
         )
-        return ready_replicas == "1"
+        return replicas == "1"
 
     return wait_until(ready)
 
 
 def check_nginx_serving():
-    """
-    FIXED: Use port-forward instead of exec (nginx image has no curl/wget)
-    """
+    """Verify nginx serves HTML via port-forward."""
     try:
-        # start port-forward
         pf = subprocess.Popen(
             f"kubectl port-forward -n {NS} svc/ingress-controller 18080:80",
             shell=True,
@@ -128,6 +131,7 @@ def check_nginx_serving():
 
 
 def check_no_restarts():
+    """Ensure restart count remains stable."""
     pod = get_pod()
     if not pod:
         return False
@@ -147,9 +151,9 @@ def check_no_restarts():
     return before == after
 
 
-# ---------------------------------------------------------
-# Apex Grade Function (REQUIRED FORMAT)
-# ---------------------------------------------------------
+# --------------------------------------------------
+# Main Grade Function
+# --------------------------------------------------
 
 def grade(task_dir=None):
 
@@ -165,10 +169,11 @@ def grade(task_dir=None):
         "no_restarts": check_no_restarts(),
     }
 
-    score = sum(1.0 if v else 0.0 for v in checks.values()) / len(checks)
+    subscores = {k: (1.0 if v else 0.0) for k, v in checks.items()}
+    score = sum(subscores.values()) / len(subscores)
 
-    return GradeResult(
-        score=score,
-        subscores={k: (1.0 if v else 0.0) for k, v in checks.items()},
-        feedback="All checks passed." if score == 1.0 else "Some checks failed.",
-    )
+    return {
+        "score": score,
+        "subscores": subscores,
+        "feedback": "All checks passed." if score == 1.0 else "Some checks failed."
+    }
