@@ -22,22 +22,29 @@ environment:
   namespace: ingress-system
   deployment: ingress-controller
   configmap: ingress-nginx-config
+  container_image: nginx:1.25.3
 
 objectives:
   - Update the ConfigMap `ingress-nginx-config`.
   - Set `ssl-session-timeout` to a valid non-zero nginx duration.
+  - Ensure the ingress controller reloads the updated configuration.
+  - Ensure the Deployment becomes Ready after applying the fix.
 
 constraints:
   - Do NOT delete or recreate the Deployment.
   - The Deployment UID must remain unchanged.
   - The container image must remain nginx:1.25.3.
   - The memory limit must remain exactly 128Mi.
+  - Only modify what is necessary to correct the timeout configuration.
 
 success_criteria:
   - Deployment becomes Ready.
   - nginx serves HTTP 200 responses.
   - Container restart count remains stable.
   - ssl-session-timeout is a valid non-zero nginx duration.
+  - Deployment UID remains unchanged.
+  - Container image remains unchanged.
+  - Memory limit remains 128Mi.
 
 notes: |
   Valid nginx duration examples include:
@@ -59,3 +66,12 @@ notes: |
       w = weeks
       M = months
       y = years
+
+  Additional Notes:
+
+  - The ingress controller runs in an offline environment where container
+    images are pre-cached locally.
+  - Updating a ConfigMap may require recreating the Pod in order for nginx
+    to reload the updated configuration.
+  - Restarting Pods is allowed as long as the Deployment itself is not
+    deleted or recreated.
