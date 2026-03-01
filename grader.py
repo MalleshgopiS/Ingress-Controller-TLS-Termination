@@ -34,10 +34,10 @@ def run(cmd):
     return result.stdout.strip()
 
 
-def wait_until(condition, timeout=120, interval=3):
+def wait_until(fn, timeout=120, interval=3):
     start = time.time()
     while time.time() - start < timeout:
-        if condition():
+        if fn():
             return True
         time.sleep(interval)
     return False
@@ -52,10 +52,11 @@ def get_pod():
 
 
 # --------------------------------------------------
-# Checks
+# Checks (with docstrings → fixes quality warning)
 # --------------------------------------------------
 
 def check_uid():
+    """Verify deployment UID unchanged (deployment not recreated)."""
     current = run(
         f"kubectl get deployment {DEPLOY} -n {NS} "
         "-o jsonpath='{.metadata.uid}'"
@@ -66,6 +67,7 @@ def check_uid():
 
 
 def check_memory():
+    """Ensure memory limit remains 128Mi."""
     mem = run(
         f"kubectl get deployment {DEPLOY} -n {NS} "
         "-o jsonpath='{.spec.template.spec.containers[0].resources.limits.memory}'"
@@ -74,6 +76,7 @@ def check_memory():
 
 
 def check_image():
+    """Ensure nginx image version unchanged."""
     image = run(
         f"kubectl get deployment {DEPLOY} -n {NS} "
         "-o jsonpath='{.spec.template.spec.containers[0].image}'"
@@ -82,6 +85,7 @@ def check_image():
 
 
 def check_timeout():
+    """Validate ssl-session-timeout uses valid nginx duration."""
     timeout = run(
         f"kubectl get configmap {CONFIGMAP} -n {NS} "
         "-o jsonpath=\"{.data.ssl-session-timeout}\""
@@ -91,6 +95,7 @@ def check_timeout():
 
 
 def check_ready():
+    """Wait until deployment becomes Available."""
     def ready():
         status = run(
             f"kubectl get deployment {DEPLOY} -n {NS} "
@@ -98,13 +103,13 @@ def check_ready():
         )
         return status.lower() == "true"
 
-    return wait_until(ready)
+    return wait_until(ready, timeout=180)
 
 
 def check_nginx_serving():
-    pod = get_pod()
-
+    """Verify nginx serves HTTP 200 from inside pod."""
     def serving():
+        pod = get_pod()
         result = subprocess.run(
             f"kubectl exec -n {NS} {pod} -c nginx "
             "-- sh -c 'wget -qO- http://localhost:80 || curl -s http://localhost:80'",
@@ -113,10 +118,11 @@ def check_nginx_serving():
         )
         return result.returncode == 0
 
-    return wait_until(serving, timeout=60)
+    return wait_until(serving, timeout=120)
 
 
-def check_no_oom():
+def check_no_restarts():
+    """Ensure container restart count remains stable."""
     pod = get_pod()
 
     before = run(
@@ -140,31 +146,26 @@ def check_no_oom():
 
 def grade(task_dir: str):
 
-    checks = [
-        ("uid_preserved", check_uid()),
-        ("memory_preserved", check_memory()),
-        ("image_preserved", check_image()),
-        ("timeout_valid", check_timeout()),
-        ("deployment_ready", check_ready()),
-        ("nginx_serving", check_nginx_serving()),
-        ("no_restarts", check_no_oom()),
-    ]
+    checks = {
+        "uid_preserved": check_uid(),
+        "memory_preserved": check_memory(),
+        "image_preserved": check_image(),
+        "timeout_valid": check_timeout(),
+        "deployment_ready": check_ready(),
+        "nginx_serving": check_nginx_serving(),
+        "no_restarts": check_no_restarts(),
+    }
 
-    subscores = []
-    weights = []
+    # Apex expects DICTS (not lists)
+    subscores = {}
+    weights = {}
+
     total = 0.0
 
-    for name, passed in checks:
+    for name, passed in checks.items():
         score = 1.0 if passed else 0.0
-
-        # ✅ DICT (JSON SERIALIZABLE)
-        subscores.append({
-            "name": name,
-            "score": score,
-            "max_score": 1.0
-        })
-
-        weights.append(1.0)
+        subscores[name] = score
+        weights[name] = 1.0
         total += score
 
     final_score = total / len(subscores)
