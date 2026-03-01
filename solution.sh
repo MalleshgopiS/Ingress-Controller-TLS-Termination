@@ -2,8 +2,21 @@
 set -e
 
 NS="ingress-system"
+DEPLOYMENT="ingress-controller"
 APP_LABEL="app=ingress-controller"
 CONFIGMAP="ingress-nginx-config"
+
+echo "Ensuring imagePullPolicy is IfNotPresent (offline safety)..."
+
+kubectl patch deployment "$DEPLOYMENT" -n "$NS" \
+  --type='json' \
+  -p='[
+    {
+      "op":"replace",
+      "path":"/spec/template/spec/containers/0/imagePullPolicy",
+      "value":"IfNotPresent"
+    }
+  ]' >/dev/null 2>&1 || true
 
 echo "Patching ConfigMap..."
 
@@ -35,7 +48,7 @@ done
 
 echo "Waiting for pod Running..."
 
-for i in {1..120}; do
+for i in {1..150}; do
   PHASE=$(kubectl get pod "$NEW_POD" -n "$NS" \
     -o jsonpath='{.status.phase}' 2>/dev/null || true)
 
@@ -46,7 +59,7 @@ for i in {1..120}; do
   sleep 2
 done
 
-echo "Waiting for container ready (safe polling)..."
+echo "Waiting for container ready..."
 
 for i in {1..150}; do
   READY=$(kubectl get pod "$NEW_POD" -n "$NS" \
@@ -59,7 +72,7 @@ for i in {1..150}; do
   sleep 2
 done
 
-echo "Extra stabilization for nginx + service routing..."
+echo "Stabilizing nginx routing..."
 sleep 30
 
 kubectl get pods -n "$NS"
