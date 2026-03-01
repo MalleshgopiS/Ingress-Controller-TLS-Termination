@@ -9,7 +9,7 @@ CONFIGMAP = "ingress-nginx-config"
 
 
 # --------------------------------------------------
-# Apex Result Classes (REQUIRED STRUCTURE)
+# Apex Result Classes (FINAL REQUIRED STRUCTURE)
 # --------------------------------------------------
 
 class Subscore:
@@ -20,10 +20,11 @@ class Subscore:
 
 
 class Result:
-    def __init__(self, score: float, subscores: list, weights: list):
+    def __init__(self, score: float, subscores: list, weights: list, feedback: str):
         self.score = score
         self.subscores = subscores
         self.weights = weights
+        self.feedback = feedback
 
 
 # --------------------------------------------------
@@ -62,15 +63,12 @@ def get_pod():
 # --------------------------------------------------
 
 def check_uid():
-    """Deployment must NOT be recreated."""
     current = run(
         f"kubectl get deployment {DEPLOY} -n {NS} "
         "-o jsonpath='{.metadata.uid}'"
     )
-
     with open("/grader/original_uid") as f:
         original = f.read().strip()
-
     return current == original
 
 
@@ -95,7 +93,6 @@ def check_timeout():
         f"kubectl get configmap {CONFIGMAP} -n {NS} "
         "-o jsonpath=\"{.data.ssl-session-timeout}\""
     )
-
     pattern = r"^[1-9][0-9]*(s|m|h|d|w|M|y)$"
     return bool(re.match(pattern, timeout))
 
@@ -172,8 +169,15 @@ def grade(task_dir: str):
 
     final_score = total / len(subscores)
 
+    feedback = (
+        "All checks passed successfully."
+        if final_score == 1.0
+        else "One or more checks failed."
+    )
+
     return Result(
         score=final_score,
         subscores=subscores,
         weights=weights,
+        feedback=feedback,
     )
