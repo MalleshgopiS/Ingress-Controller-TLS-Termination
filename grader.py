@@ -1,18 +1,7 @@
 #!/usr/bin/env python3
 """
-Grader for: Ingress Controller TLS Termination
-
-This grader validates:
-
-1. Deployment UID is preserved (no recreation)
-2. Memory limit remains exactly 128Mi
-3. Container image remains nginx:1.25.3
-4. ssl-session-timeout is a valid non-zero nginx duration
-5. Deployment becomes Ready
-6. Nginx serves HTTP 200 responses
-7. Container restart count remains stable
-
-Final score = mean of all 7 binary checks.
+Nebula-compatible grader for:
+Ingress Controller TLS Termination
 """
 
 import subprocess
@@ -26,16 +15,6 @@ CM = "ingress-nginx-config"
 
 
 class GradeResult:
-    """
-    Apex-compatible grading result object.
-
-    Required attributes:
-        score (float)
-        subscores (dict)
-        weights (dict)
-        feedback (str)
-    """
-
     def __init__(self, score, subscores, weights, feedback=""):
         self.score = score
         self.subscores = subscores
@@ -43,8 +22,11 @@ class GradeResult:
         self.feedback = feedback
 
 
+# --------------------------------------------------
+# Helpers
+# --------------------------------------------------
+
 def run(cmd):
-    """Execute shell command and return output string safely."""
     try:
         return subprocess.check_output(
             cmd, shell=True, stderr=subprocess.DEVNULL
@@ -53,8 +35,7 @@ def run(cmd):
         return ""
 
 
-def wait_until(fn, timeout=180, interval=5):
-    """Poll condition function until True or timeout."""
+def wait_until(fn, timeout=240, interval=5):
     start = time.time()
     while time.time() - start < timeout:
         if fn():
@@ -64,12 +45,11 @@ def wait_until(fn, timeout=180, interval=5):
 
 
 def stabilize():
-    """Initial stabilization delay before running checks."""
-    time.sleep(25)
+    # Nebula needs longer stabilization
+    time.sleep(30)
 
 
 def get_pod():
-    """Return ingress controller pod name."""
     return run(
         f"kubectl get pods -n {NS} "
         f"-l app=ingress-controller "
@@ -77,17 +57,18 @@ def get_pod():
     )
 
 
+# --------------------------------------------------
+# Grade
+# --------------------------------------------------
+
 def grade(task_dir=None):
-    """Run all validation checks and compute final mean score."""
 
     stabilize()
 
     subscores = {}
     weights = {}
 
-    # --------------------------------------------------
-    # 1. Deployment UID preserved
-    # --------------------------------------------------
+    # ---------------- UID preserved ----------------
     original_uid = run("cat /grader/original_uid")
     current_uid = run(
         f"kubectl get deploy {DEPLOY} -n {NS} "
@@ -97,33 +78,27 @@ def grade(task_dir=None):
     subscores["uid_preserved"] = (
         bool(original_uid) and original_uid == current_uid
     )
-    weights["uid_preserved"] = 1.0
+    weights["uid_preserved"] = 1
 
-    # --------------------------------------------------
-    # 2. Memory limit unchanged
-    # --------------------------------------------------
+    # ---------------- Memory preserved ----------------
     memory = run(
         f"kubectl get deploy {DEPLOY} -n {NS} "
         "-o jsonpath='{.spec.template.spec.containers[0].resources.limits.memory}'"
     )
 
     subscores["memory_preserved"] = memory == "128Mi"
-    weights["memory_preserved"] = 1.0
+    weights["memory_preserved"] = 1
 
-    # --------------------------------------------------
-    # 3. Image unchanged
-    # --------------------------------------------------
+    # ---------------- Image preserved ----------------
     image = run(
         f"kubectl get deploy {DEPLOY} -n {NS} "
         "-o jsonpath='{.spec.template.spec.containers[0].image}'"
     )
 
     subscores["image_preserved"] = image == "nginx:1.25.3"
-    weights["image_preserved"] = 1.0
+    weights["image_preserved"] = 1
 
-    # --------------------------------------------------
-    # 4. Valid ssl-session-timeout
-    # --------------------------------------------------
+    # ---------------- Valid timeout ----------------
     timeout_value = run(
         f"kubectl get cm {CM} -n {NS} "
         "-o jsonpath='{.data.ssl-session-timeout}'"
@@ -133,24 +108,22 @@ def grade(task_dir=None):
     subscores["valid_timeout"] = (
         re.match(pattern, timeout_value or "") is not None
     )
-    weights["valid_timeout"] = 1.0
+    weights["valid_timeout"] = 1
 
-    # --------------------------------------------------
-    # 5. Deployment Ready
-    # --------------------------------------------------
-    def ready():
-        return run(
-            f"kubectl get deploy {DEPLOY} -n {NS} "
-            "-o jsonpath='{.status.readyReplicas}'"
-        ) == "1"
+    # ---------------- Deployment Ready (FIXED) ----------------
+    def rollout_ready():
+        status = run(
+            f"kubectl rollout status deploy/{DEPLOY} "
+            f"-n {NS} --timeout=5s"
+        )
+        return "successfully rolled out" in status
 
-    subscores["deployment_ready"] = wait_until(ready)
-    weights["deployment_ready"] = 1.0
+    subscores["deployment_ready"] = wait_until(rollout_ready)
+    weights["deployment_ready"] = 1
 
-    # --------------------------------------------------
-    # 6. Nginx serving HTTP 200
-    # --------------------------------------------------
+    # ---------------- nginx serving (FIXED) ----------------
     nginx_serving = False
+
     try:
         pf = subprocess.Popen(
             f"kubectl port-forward -n {NS} svc/ingress-controller 18080:80",
@@ -158,56 +131,55 @@ def grade(task_dir=None):
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
-        time.sleep(5)
-        response = run(
-            "curl -s -o /dev/null -w '%{http_code}' http://localhost:18080"
-        )
+
+        # retry curl multiple times (Nebula fix)
+        for _ in range(15):
+            time.sleep(2)
+            code = run(
+                "curl -s -o /dev/null -w '%{http_code}' http://localhost:18080"
+            )
+            if code == "200":
+                nginx_serving = True
+                break
+
         pf.terminate()
-        nginx_serving = response == "200"
+
     except Exception:
         nginx_serving = False
 
     subscores["nginx_serving"] = nginx_serving
-    weights["nginx_serving"] = 1.0
+    weights["nginx_serving"] = 1
 
-    # --------------------------------------------------
-    # 7. Restart count stable
-    # --------------------------------------------------
-    restart_stable = False
+    # ---------------- Restart stability ----------------
     pod = get_pod()
+    restart_stable = False
 
     if pod:
         before = run(
             f"kubectl get pod {pod} -n {NS} "
             "-o jsonpath='{.status.containerStatuses[0].restartCount}'"
         )
+
         time.sleep(60)
+
         after = run(
             f"kubectl get pod {pod} -n {NS} "
             "-o jsonpath='{.status.containerStatuses[0].restartCount}'"
         )
+
         restart_stable = before == after
 
     subscores["restart_stable"] = restart_stable
-    weights["restart_stable"] = 1.0
+    weights["restart_stable"] = 1
 
-    # --------------------------------------------------
-    # Final Mean Score (Normalized Total Weight = 1.0)
-    # --------------------------------------------------
+    # ---------------- Final score ----------------
+    total = len(subscores)
+    for k in weights:
+        weights[k] = 1.0 / total
 
-    total_checks = len(subscores)
-
-    # Normalize weights so total weight = 1.0
-    if total_checks > 0:
-        normalized_weight = 1.0 / total_checks
-        for k in weights:
-            weights[k] = normalized_weight
-
-    total_weight = sum(weights.values())
     earned = sum(weights[k] for k, v in subscores.items() if v)
+    score = earned
 
-    final_score = earned / total_weight if total_weight else 0.0
+    feedback = f"{sum(subscores.values())}/{total} checks passed."
 
-    feedback = f"{sum(1 for v in subscores.values() if v)}/{total_checks} checks passed."
-
-    return GradeResult(final_score, subscores, weights, feedback)
+    return GradeResult(score, subscores, weights, feedback)
