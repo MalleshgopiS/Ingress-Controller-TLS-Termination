@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-set -e
+set -euo pipefail
 
 NS="ingress-system"
 DEPLOYMENT="ingress-controller"
 APP_LABEL="app=ingress-controller"
 CONFIGMAP="ingress-nginx-config"
 
-echo "Ensuring imagePullPolicy is IfNotPresent (offline safety)..."
+echo "Step 1: Ensure local image reuse (offline-safe)..."
 
 kubectl patch deployment "$DEPLOYMENT" -n "$NS" \
   --type='json' \
@@ -18,63 +18,72 @@ kubectl patch deployment "$DEPLOYMENT" -n "$NS" \
     }
   ]' >/dev/null 2>&1 || true
 
-echo "Patching ConfigMap..."
+echo "Step 2: Patch ConfigMap..."
 
 kubectl patch configmap "$CONFIGMAP" \
   -n "$NS" \
   --type merge \
   -p '{"data":{"ssl-session-timeout":"10m"}}'
 
-echo "Getting current pod..."
+echo "Step 3: Find current pod..."
 
 OLD_POD=$(kubectl get pods -n "$NS" -l "$APP_LABEL" \
   -o jsonpath='{.items[0].metadata.name}')
 
-echo "Deleting pod to reload configuration..."
+echo "Deleting pod: $OLD_POD"
 kubectl delete pod "$OLD_POD" -n "$NS" --wait=false
 
-echo "Waiting for new pod..."
+echo "Step 4: Waiting for replacement pod..."
 
-for i in {1..120}; do
-  NEW_POD=$(kubectl get pods -n "$NS" -l "$APP_LABEL" \
-    -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+NEW_POD=""
 
-  if [[ -n "$NEW_POD" && "$NEW_POD" != "$OLD_POD" ]]; then
-    echo "New pod detected: $NEW_POD"
+timeout 120 bash -c '
+while true; do
+  POD=$(kubectl get pods -n '"$NS"' -l '"$APP_LABEL"' \
+    -o jsonpath="{.items[0].metadata.name}" 2>/dev/null || true)
+
+  if [[ -n "$POD" && "$POD" != "'"$OLD_POD"'" ]]; then
+    echo "$POD"
     break
   fi
-  sleep 2
+  sleep 1
 done
+' > /tmp/newpod
 
-echo "Waiting for pod Running..."
+NEW_POD=$(cat /tmp/newpod)
+echo "New pod: $NEW_POD"
 
-for i in {1..150}; do
-  PHASE=$(kubectl get pod "$NEW_POD" -n "$NS" \
-    -o jsonpath='{.status.phase}' 2>/dev/null || true)
+echo "Step 5: Waiting for pod readiness (fast mode)..."
 
-  if [[ "$PHASE" == "Running" ]]; then
-    echo "Pod is Running"
+timeout 180 bash -c '
+while true; do
+  PHASE=$(kubectl get pod '"$NEW_POD"' -n '"$NS"' \
+    -o jsonpath="{.status.phase}" 2>/dev/null || true)
+
+  READY=$(kubectl get pod '"$NEW_POD"' -n '"$NS"' \
+    -o jsonpath="{.status.containerStatuses[0].ready}" 2>/dev/null || true)
+
+  REASON=$(kubectl get pod '"$NEW_POD"' -n '"$NS"' \
+    -o jsonpath="{.status.containerStatuses[0].state.waiting.reason}" 2>/dev/null || true)
+
+  if [[ "$REASON" == "ImagePullBackOff" || "$REASON" == "ErrImagePull" ]]; then
+    echo "❌ Image pull failure detected"
+    kubectl describe pod '"$NEW_POD"' -n '"$NS"'
+    exit 1
+  fi
+
+  if [[ "$PHASE" == "Running" && "$READY" == "true" ]]; then
+    echo "✅ Pod ready"
     break
   fi
-  sleep 2
+
+  sleep 1
 done
+'
 
-echo "Waiting for container ready..."
-
-for i in {1..150}; do
-  READY=$(kubectl get pod "$NEW_POD" -n "$NS" \
-    -o jsonpath='{.status.containerStatuses[0].ready}' 2>/dev/null || true)
-
-  if [[ "$READY" == "true" ]]; then
-    echo "Container is Ready"
-    break
-  fi
-  sleep 2
-done
-
-echo "Stabilizing nginx routing..."
-sleep 30
+echo "Step 6: Stabilizing service routing..."
+sleep 20
 
 kubectl get pods -n "$NS"
 
-echo "✅ Fix applied successfully."
+echo "✅ TLS session timeout fixed successfully."
