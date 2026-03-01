@@ -2,21 +2,8 @@
 set -e
 
 NS="ingress-system"
-DEPLOYMENT="ingress-controller"
 APP_LABEL="app=ingress-controller"
 CONFIGMAP="ingress-nginx-config"
-
-echo "Fixing image pull policy (Nebula offline safety)..."
-
-kubectl patch deployment "$DEPLOYMENT" -n "$NS" \
-  --type='json' \
-  -p='[
-    {
-      "op":"replace",
-      "path":"/spec/template/spec/containers/0/imagePullPolicy",
-      "value":"IfNotPresent"
-    }
-  ]' || true
 
 echo "Patching ConfigMap..."
 
@@ -46,13 +33,34 @@ for i in {1..120}; do
   sleep 2
 done
 
-echo "Waiting for pod Ready..."
+echo "Waiting for pod Running..."
 
-kubectl wait --for=condition=Ready pod/"$NEW_POD" \
-  -n "$NS" --timeout=180s
+for i in {1..120}; do
+  PHASE=$(kubectl get pod "$NEW_POD" -n "$NS" \
+    -o jsonpath='{.status.phase}' 2>/dev/null || true)
 
-echo "Stabilizing..."
-sleep 25
+  if [[ "$PHASE" == "Running" ]]; then
+    echo "Pod is Running"
+    break
+  fi
+  sleep 2
+done
+
+echo "Waiting for container ready (safe polling)..."
+
+for i in {1..150}; do
+  READY=$(kubectl get pod "$NEW_POD" -n "$NS" \
+    -o jsonpath='{.status.containerStatuses[0].ready}' 2>/dev/null || true)
+
+  if [[ "$READY" == "true" ]]; then
+    echo "Container is Ready"
+    break
+  fi
+  sleep 2
+done
+
+echo "Extra stabilization for nginx + service routing..."
+sleep 30
 
 kubectl get pods -n "$NS"
 
