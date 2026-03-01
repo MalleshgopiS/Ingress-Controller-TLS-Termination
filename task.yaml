@@ -30,14 +30,14 @@ objectives:
 constraints:
   - Do NOT delete or recreate the Deployment.
   - The Deployment UID must remain unchanged.
-  - The container image must remain nginx:1.25.3.
-  - The memory limit must remain exactly 128Mi.
+  - The container image must remain `nginx:1.25.3`.
+  - The memory limit must remain exactly `128Mi`.
 
 success_criteria:
   - Deployment becomes Ready.
   - nginx serves HTTP 200 responses.
   - Container restart count remains stable.
-  - ssl-session-timeout is a valid non-zero nginx duration.
+  - ssl-session-timeout` is a valid non-zero nginx duration.
 
 notes: |
   Valid nginx duration examples include:
