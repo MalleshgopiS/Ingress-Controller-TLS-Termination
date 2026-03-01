@@ -9,18 +9,11 @@ CONFIGMAP = "ingress-nginx-config"
 
 
 # --------------------------------------------------
-# Apex Result Classes (FINAL REQUIRED STRUCTURE)
+# Result Object (Apex Compatible)
 # --------------------------------------------------
 
-class Subscore:
-    def __init__(self, name: str, score: float, max_score: float):
-        self.name = name
-        self.score = score
-        self.max_score = max_score
-
-
 class Result:
-    def __init__(self, score: float, subscores: list, weights: list, feedback: str):
+    def __init__(self, score, subscores, weights, feedback):
         self.score = score
         self.subscores = subscores
         self.weights = weights
@@ -31,7 +24,7 @@ class Result:
 # Helpers
 # --------------------------------------------------
 
-def run(cmd: str) -> str:
+def run(cmd):
     result = subprocess.run(
         cmd,
         shell=True,
@@ -163,7 +156,14 @@ def grade(task_dir: str):
 
     for name, passed in checks:
         score = 1.0 if passed else 0.0
-        subscores.append(Subscore(name, score, 1.0))
+
+        # ✅ DICT (JSON SERIALIZABLE)
+        subscores.append({
+            "name": name,
+            "score": score,
+            "max_score": 1.0
+        })
+
         weights.append(1.0)
         total += score
 
