@@ -106,14 +106,14 @@ spec:
 EOF
 
 ############################################
-# WAIT FOR POD RUNNING (NOT AVAILABLE)
+# WAIT FOR POD RUNNING
 ############################################
 echo "Waiting for pod to reach Running state..."
 
 for i in {1..60}; do
   STATUS=$(kubectl get pods -n $NS -l app=ingress-controller \
     -o jsonpath='{.items[0].status.phase}' 2>/dev/null || echo "")
-  
+
   if [[ "$STATUS" == "Running" ]]; then
     echo "Pod is running."
     break
@@ -126,6 +126,8 @@ done
 # SAVE ORIGINAL UID
 ############################################
 echo "Saving original UID..."
+
+mkdir -p /grader
 
 kubectl get deployment ingress-controller \
   -n $NS \
