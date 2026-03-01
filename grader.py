@@ -1,7 +1,18 @@
 #!/usr/bin/env python3
 """
 Nebula-compatible grader for:
+
 Ingress Controller TLS Termination
+
+Validates:
+
+1. Deployment UID preserved
+2. Memory limit unchanged (128Mi)
+3. Image unchanged (nginx:1.25.3)
+4. ssl-session-timeout valid
+5. Deployment Available
+6. nginx serves HTTP 200
+7. Restart count stable
 """
 
 import subprocess
@@ -14,6 +25,9 @@ DEPLOY = "ingress-controller"
 CM = "ingress-nginx-config"
 
 
+# --------------------------------------------------
+# Apex Result Object
+# --------------------------------------------------
 class GradeResult:
     def __init__(self, score, subscores, weights, feedback=""):
         self.score = score
@@ -25,7 +39,6 @@ class GradeResult:
 # --------------------------------------------------
 # Helpers
 # --------------------------------------------------
-
 def run(cmd):
     try:
         return subprocess.check_output(
@@ -58,9 +71,8 @@ def get_pod():
 
 
 # --------------------------------------------------
-# Grade
+# MAIN GRADING
 # --------------------------------------------------
-
 def grade(task_dir=None):
 
     stabilize()
@@ -78,7 +90,7 @@ def grade(task_dir=None):
     subscores["uid_preserved"] = (
         bool(original_uid) and original_uid == current_uid
     )
-    weights["uid_preserved"] = 1
+    weights["uid_preserved"] = 1.0
 
     # ---------------- Memory preserved ----------------
     memory = run(
@@ -87,7 +99,7 @@ def grade(task_dir=None):
     )
 
     subscores["memory_preserved"] = memory == "128Mi"
-    weights["memory_preserved"] = 1
+    weights["memory_preserved"] = 1.0
 
     # ---------------- Image preserved ----------------
     image = run(
@@ -96,7 +108,7 @@ def grade(task_dir=None):
     )
 
     subscores["image_preserved"] = image == "nginx:1.25.3"
-    weights["image_preserved"] = 1
+    weights["image_preserved"] = 1.0
 
     # ---------------- Valid timeout ----------------
     timeout_value = run(
@@ -108,21 +120,21 @@ def grade(task_dir=None):
     subscores["valid_timeout"] = (
         re.match(pattern, timeout_value or "") is not None
     )
-    weights["valid_timeout"] = 1
+    weights["valid_timeout"] = 1.0
 
-    # ---------------- Deployment Ready (FIXED) ----------------
-    def rollout_ready():
-        status = run(
-            f"kubectl rollout status deploy/{DEPLOY} "
-            f"-n {NS} --timeout=5s"
-        )
-        return "successfully rolled out" in status
+    # ---------------- Deployment Available ----------------
+    def deployment_available():
+        return run(
+            f"kubectl get deploy {DEPLOY} -n {NS} "
+            "-o jsonpath='{.status.conditions[?(@.type==\"Available\")].status}'"
+        ) == "True"
 
-    subscores["deployment_ready"] = wait_until(rollout_ready)
-    weights["deployment_ready"] = 1
+    subscores["deployment_ready"] = wait_until(deployment_available)
+    weights["deployment_ready"] = 1.0
 
-    # ---------------- nginx serving (FIXED) ----------------
+    # ---------------- nginx HTTP check ----------------
     nginx_serving = False
+    pf = None
 
     try:
         pf = subprocess.Popen(
@@ -132,9 +144,9 @@ def grade(task_dir=None):
             stderr=subprocess.DEVNULL,
         )
 
-        # retry curl multiple times (Nebula fix)
-        for _ in range(15):
-            time.sleep(2)
+        # retry HTTP because service warmup is slow in Nebula
+        for _ in range(20):
+            time.sleep(3)
             code = run(
                 "curl -s -o /dev/null -w '%{http_code}' http://localhost:18080"
             )
@@ -142,17 +154,16 @@ def grade(task_dir=None):
                 nginx_serving = True
                 break
 
-        pf.terminate()
-
-    except Exception:
-        nginx_serving = False
+    finally:
+        if pf:
+            pf.terminate()
 
     subscores["nginx_serving"] = nginx_serving
-    weights["nginx_serving"] = 1
+    weights["nginx_serving"] = 1.0
 
-    # ---------------- Restart stability ----------------
-    pod = get_pod()
+    # ---------------- Restart stable ----------------
     restart_stable = False
+    pod = get_pod()
 
     if pod:
         before = run(
@@ -170,16 +181,18 @@ def grade(task_dir=None):
         restart_stable = before == after
 
     subscores["restart_stable"] = restart_stable
-    weights["restart_stable"] = 1
+    weights["restart_stable"] = 1.0
 
     # ---------------- Final score ----------------
     total = len(subscores)
+    normalized_weight = 1.0 / total
+
     for k in weights:
-        weights[k] = 1.0 / total
+        weights[k] = normalized_weight
 
     earned = sum(weights[k] for k, v in subscores.items() if v)
-    score = earned
+    final_score = earned
 
     feedback = f"{sum(subscores.values())}/{total} checks passed."
 
-    return GradeResult(score, subscores, weights, feedback)
+    return GradeResult(final_score, subscores, weights, feedback)
