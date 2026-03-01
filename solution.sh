@@ -2,8 +2,8 @@
 set -euo pipefail
 
 NS="ingress-system"
-APP_LABEL="app=ingress-controller"
 CONFIGMAP="ingress-nginx-config"
+APP_LABEL="app=ingress-controller"
 
 echo "Patching ConfigMap..."
 
@@ -12,23 +12,17 @@ kubectl patch configmap "$CONFIGMAP" \
   --type merge \
   -p '{"data":{"ssl-session-timeout":"10m"}}'
 
-
-echo "Finding current pod..."
+echo "Finding old pod..."
 
 OLD_POD=$(kubectl get pods -n "$NS" -l "$APP_LABEL" \
   -o jsonpath='{.items[0].metadata.name}')
 
-echo "Deleting pod: $OLD_POD"
-kubectl delete pod "$OLD_POD" -n "$NS" --wait=false
+echo "Deleting pod $OLD_POD"
+kubectl delete pod "$OLD_POD" -n "$NS"
 
-
-echo "Waiting for replacement pod..."
+echo "Waiting for new pod..."
 
 kubectl wait --for=condition=Ready pod \
   -l "$APP_LABEL" -n "$NS" --timeout=180s
 
-sleep 20
-
-kubectl get pods -n "$NS"
-
-echo "✅ TLS session timeout fixed successfully."
+echo "✅ Fix applied."

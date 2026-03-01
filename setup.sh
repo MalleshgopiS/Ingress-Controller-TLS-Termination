@@ -15,12 +15,6 @@ kubectl create rolebinding ubuntu-user-admin-binding \
   --user=ubuntu-user -n $NS || true
 
 
-echo "Preloading nginx image into k3s containerd..."
-
-# ⭐ CRITICAL FOR NEBULA OFFLINE MODE
-sudo k3s ctr images pull docker.io/library/nginx:1.25.3 || true
-
-
 echo "Creating broken ConfigMap..."
 
 kubectl apply -f - <<EOF
