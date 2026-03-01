@@ -8,15 +8,14 @@ description: |
   A Kubernetes ingress controller is experiencing instability due to an
   incorrect TLS session cache configuration.
 
-  The ConfigMap `ingress-nginx-config` contains the setting:
+  The ConfigMap `ingress-nginx-config` contains:
 
       ssl-session-timeout: "0"
 
-  A timeout value of "0" disables session expiration, allowing TLS sessions
-  to accumulate indefinitely and causing memory growth over time.
+  A timeout value of "0" disables session expiration and causes
+  unbounded TLS session growth.
 
-  Your task is to correct this configuration safely without disrupting
-  the existing Deployment.
+  Fix the configuration safely without disrupting the Deployment.
 
 environment:
   namespace: ingress-system
@@ -25,53 +24,33 @@ environment:
   container_image: nginx:1.25.3
 
 objectives:
-  - Update the ConfigMap `ingress-nginx-config`.
-  - Set `ssl-session-timeout` to a valid non-zero nginx duration.
-  - Ensure the ingress controller reloads the updated configuration.
-  - Ensure the Deployment becomes Ready after applying the fix.
+  - Update the ConfigMap.
+  - Set ssl-session-timeout to a valid non-zero nginx duration.
+  - Ensure nginx reloads configuration.
 
 constraints:
   - Do NOT delete or recreate the Deployment.
-  - The Deployment UID must remain unchanged.
-  - The container image must remain nginx:1.25.3.
-  - The memory limit must remain exactly 128Mi.
-  - Only modify what is necessary to correct the timeout configuration.
+  - Deployment UID must remain unchanged.
+  - Container image must remain nginx:1.25.3.
+  - Memory limit must remain 128Mi.
 
 success_criteria:
   - Deployment becomes Ready.
-  - nginx serves HTTP 200 responses.
-  - Container restart count remains stable.
-  - ssl-session-timeout is a valid non-zero nginx duration.
-  - Deployment UID remains unchanged.
-  - Container image remains unchanged.
-  - Memory limit remains 128Mi.
+  - nginx serves HTTP 200.
+  - Restart count remains stable.
+  - ssl-session-timeout is valid.
+  - Deployment UID unchanged.
+  - Image unchanged.
+  - Memory unchanged.
 
 notes: |
-  Valid nginx duration examples include:
+  Valid nginx durations:
 
       10s
       5m
       1h
       1d
 
-  Format:
+  Updating a ConfigMap may require Pod recreation for nginx reload.
 
-      <positive_integer><unit>
-
-  Supported units:
-      s = seconds
-      m = minutes
-      h = hours
-      d = days
-      w = weeks
-      M = months
-      y = years
-
-  Additional Notes:
-
-  - The ingress controller runs in an offline environment where container
-    images are pre-cached locally.
-  - Updating a ConfigMap may require recreating the Pod in order for nginx
-    to reload the updated configuration.
-  - Restarting Pods is allowed as long as the Deployment itself is not
-    deleted or recreated.
+  The environment runs offline with pre-cached container images.

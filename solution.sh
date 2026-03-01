@@ -27,8 +27,6 @@ echo "Waiting for replacement pod..."
 kubectl wait --for=condition=Ready pod \
   -l "$APP_LABEL" -n "$NS" --timeout=180s
 
-
-echo "Stabilizing..."
 sleep 20
 
 kubectl get pods -n "$NS"

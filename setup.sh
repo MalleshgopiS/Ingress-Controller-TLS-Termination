@@ -15,9 +15,9 @@ kubectl create rolebinding ubuntu-user-admin-binding \
   --user=ubuntu-user -n $NS || true
 
 
-echo "Pre-pulling nginx image into k3s (OFFLINE SAFE)..."
+echo "Preloading nginx image into k3s containerd..."
 
-# Pull into containerd used by k3s
+# ⭐ CRITICAL FOR NEBULA OFFLINE MODE
 sudo k3s ctr images pull docker.io/library/nginx:1.25.3 || true
 
 
@@ -83,7 +83,7 @@ spec:
 EOF
 
 
-echo "Waiting for pod to reach Running state..."
+echo "Waiting for pod..."
 
 kubectl wait --for=condition=Ready pod \
   -l app=ingress-controller -n $NS --timeout=180s
