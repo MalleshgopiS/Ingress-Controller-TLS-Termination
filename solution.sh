@@ -20,7 +20,6 @@ kubectl delete pod "$OLD_POD" -n $NS --wait=false
 
 echo "Waiting for new pod to be created..."
 
-# wait until a NEW pod appears
 for i in {1..60}; do
   NEW_POD=$(kubectl get pods -n $NS -l $APP_LABEL \
     -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
@@ -33,12 +32,19 @@ for i in {1..60}; do
   sleep 2
 done
 
-echo "Waiting for pod to become Ready..."
+echo "Waiting for pod to reach Running phase..."
 
-kubectl wait \
-  --for=condition=ready pod/"$NEW_POD" \
-  -n $NS \
-  --timeout=180s
+for i in {1..90}; do
+  STATUS=$(kubectl get pod "$NEW_POD" -n $NS \
+    -o jsonpath='{.status.phase}' 2>/dev/null || true)
+
+  if [[ "$STATUS" == "Running" ]]; then
+    echo "Pod is Running"
+    break
+  fi
+
+  sleep 2
+done
 
 echo "Stabilizing..."
 sleep 15
