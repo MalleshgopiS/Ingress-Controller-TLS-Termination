@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 import subprocess
-import json
 import re
 import time
+
+# ✅ REQUIRED BY APEX
+from apex_arena.grading import GradeResult
 
 NS = "ingress-system"
 DEPLOY = "ingress-controller"
@@ -14,7 +16,6 @@ CONFIGMAP = "ingress-nginx-config"
 # --------------------------------------------------
 
 def run(cmd: str) -> str:
-    """Execute shell command and return stdout safely."""
     try:
         out = subprocess.check_output(
             cmd, shell=True, stderr=subprocess.DEVNULL
@@ -25,7 +26,6 @@ def run(cmd: str) -> str:
 
 
 def wait_until(fn, timeout=180, interval=5):
-    """Wait until condition becomes true."""
     start = time.time()
     while time.time() - start < timeout:
         if fn():
@@ -35,7 +35,6 @@ def wait_until(fn, timeout=180, interval=5):
 
 
 def get_pod():
-    """Fetch ingress controller pod name."""
     cmd = (
         f"kubectl get pods -n {NS} "
         "-l app=ingress-controller "
@@ -45,11 +44,10 @@ def get_pod():
 
 
 # --------------------------------------------------
-# Checks (LOGIC UNCHANGED)
+# Checks (UNCHANGED LOGIC)
 # --------------------------------------------------
 
 def check_uid():
-    """Ensure deployment UID unchanged."""
     current = run(
         f"kubectl get deploy {DEPLOY} -n {NS} "
         "-o jsonpath='{.metadata.uid}'"
@@ -65,7 +63,6 @@ def check_uid():
 
 
 def check_memory():
-    """Ensure memory limit remains 128Mi."""
     mem = run(
         f"kubectl get deploy {DEPLOY} -n {NS} "
         "-o jsonpath='{.spec.template.spec.containers[0].resources.limits.memory}'"
@@ -74,7 +71,6 @@ def check_memory():
 
 
 def check_image():
-    """Ensure nginx image unchanged."""
     image = run(
         f"kubectl get deploy {DEPLOY} -n {NS} "
         "-o jsonpath='{.spec.template.spec.containers[0].image}'"
@@ -83,7 +79,6 @@ def check_image():
 
 
 def check_timeout():
-    """Validate nginx ssl-session-timeout format."""
     timeout = run(
         f"kubectl get configmap {CONFIGMAP} -n {NS} "
         "-o jsonpath='{.data.ssl-session-timeout}'"
@@ -94,7 +89,6 @@ def check_timeout():
 
 
 def check_ready():
-    """Ensure deployment becomes ready."""
     def ready():
         val = run(
             f"kubectl get deploy {DEPLOY} -n {NS} "
@@ -106,7 +100,6 @@ def check_ready():
 
 
 def check_nginx_serving():
-    """Verify nginx serves HTTP content."""
     pod = get_pod()
     if not pod:
         return False
@@ -121,7 +114,6 @@ def check_nginx_serving():
 
 
 def check_no_restarts():
-    """Ensure container restart count stable."""
     pod = get_pod()
     if not pod:
         return False
@@ -140,15 +132,10 @@ def check_no_restarts():
 
 
 # --------------------------------------------------
-# REQUIRED APEX ENTRYPOINT (FIX ONLY)
+# ✅ APEX ENTRYPOINT (FIX ONLY)
 # --------------------------------------------------
 
 def grade(task_dir: str):
-    """
-    Apex grading entrypoint.
-    task_dir argument REQUIRED by Apex.
-    """
-
     checks = {
         "uid_preserved": check_uid,
         "memory_preserved": check_memory,
@@ -169,18 +156,9 @@ def grade(task_dir: str):
 
     score = sum(subscores.values()) / len(subscores)
 
-    return {
-        "score": score,
-        "subscores": subscores,
-        "weights": weights,
-        "feedback": (
-            "All checks passed."
-            if score == 1.0
-            else "One or more checks failed."
-        ),
-    }
-
-
-# standalone run support
-if __name__ == "__main__":
-    print(json.dumps(grade(".")))
+    return GradeResult(
+        score=score,
+        subscores=subscores,
+        weights=weights,
+        feedback="All checks passed." if score == 1.0 else "One or more checks failed.",
+    )
