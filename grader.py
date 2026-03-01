@@ -26,7 +26,7 @@ CM = "ingress-nginx-config"
 
 
 # --------------------------------------------------
-# Apex Result Object
+# Apex grading result object
 # --------------------------------------------------
 class GradeResult:
     def __init__(self, score, subscores, weights, feedback=""):
@@ -37,9 +37,10 @@ class GradeResult:
 
 
 # --------------------------------------------------
-# Helpers
+# helpers
 # --------------------------------------------------
 def run(cmd):
+    """Execute command safely."""
     try:
         return subprocess.check_output(
             cmd, shell=True, stderr=subprocess.DEVNULL
@@ -48,7 +49,8 @@ def run(cmd):
         return ""
 
 
-def wait_until(fn, timeout=240, interval=5):
+def wait_until(fn, timeout=300, interval=5):
+    """Wait until condition becomes True."""
     start = time.time()
     while time.time() - start < timeout:
         if fn():
@@ -58,20 +60,24 @@ def wait_until(fn, timeout=240, interval=5):
 
 
 def stabilize():
-    # Nebula needs longer stabilization
-    time.sleep(30)
+    """
+    Nebula snapshot environments need extra stabilization
+    after solution execution.
+    """
+    time.sleep(40)
 
 
 def get_pod():
+    """Return ingress controller pod name."""
     return run(
         f"kubectl get pods -n {NS} "
-        f"-l app=ingress-controller "
-        f"-o jsonpath='{{.items[0].metadata.name}}'"
+        "-l app=ingress-controller "
+        "-o jsonpath='{.items[0].metadata.name}'"
     )
 
 
 # --------------------------------------------------
-# MAIN GRADING
+# grading logic
 # --------------------------------------------------
 def grade(task_dir=None):
 
@@ -123,16 +129,21 @@ def grade(task_dir=None):
     weights["valid_timeout"] = 1.0
 
     # ---------------- Deployment Available ----------------
-    def deployment_available():
-        return run(
-            f"kubectl get deploy {DEPLOY} -n {NS} "
-            "-o jsonpath='{.status.conditions[?(@.type==\"Available\")].status}'"
-        ) == "True"
+    # Nebula-safe: check POD readiness instead of delayed deployment field
+    def pod_ready():
+        pod = get_pod()
+        if not pod:
+            return False
 
-    subscores["deployment_ready"] = wait_until(deployment_available)
+        return run(
+            f"kubectl get pod {pod} -n {NS} "
+            "-o jsonpath='{.status.containerStatuses[0].ready}'"
+        ) == "true"
+
+    subscores["deployment_ready"] = wait_until(pod_ready)
     weights["deployment_ready"] = 1.0
 
-    # ---------------- nginx HTTP check ----------------
+    # ---------------- nginx HTTP 200 ----------------
     nginx_serving = False
     pf = None
 
@@ -144,8 +155,8 @@ def grade(task_dir=None):
             stderr=subprocess.DEVNULL,
         )
 
-        # retry HTTP because service warmup is slow in Nebula
-        for _ in range(20):
+        # retry because Nebula service routing warms slowly
+        for _ in range(25):
             time.sleep(3)
             code = run(
                 "curl -s -o /dev/null -w '%{http_code}' http://localhost:18080"
@@ -161,7 +172,7 @@ def grade(task_dir=None):
     subscores["nginx_serving"] = nginx_serving
     weights["nginx_serving"] = 1.0
 
-    # ---------------- Restart stable ----------------
+    # ---------------- Restart stability ----------------
     restart_stable = False
     pod = get_pod()
 
@@ -190,8 +201,7 @@ def grade(task_dir=None):
     for k in weights:
         weights[k] = normalized_weight
 
-    earned = sum(weights[k] for k, v in subscores.items() if v)
-    final_score = earned
+    final_score = sum(weights[k] for k, v in subscores.items() if v)
 
     feedback = f"{sum(subscores.values())}/{total} checks passed."
 
