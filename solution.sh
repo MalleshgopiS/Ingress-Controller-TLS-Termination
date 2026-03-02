@@ -22,7 +22,7 @@ echo "Deleting old pod: $OLD_POD"
 kubectl delete pod "$OLD_POD" -n "$NS" --wait=false
 
 # ----------------------------------------------------
-# Wait for NEW pod creation
+# Wait for new pod
 # ----------------------------------------------------
 
 echo "Waiting for new pod..."
@@ -45,7 +45,7 @@ if [[ -z "${NEW_POD:-}" ]]; then
 fi
 
 # ----------------------------------------------------
-# Wait for pod PHASE = Running (more stable than Ready)
+# Wait for pod Running
 # ----------------------------------------------------
 
 echo "Waiting for pod phase Running..."
@@ -63,21 +63,25 @@ for i in {1..150}; do
 done
 
 # ----------------------------------------------------
-# Wait for Deployment Available (grader requirement)
+# CI-SAFE Deployment readiness check
 # ----------------------------------------------------
 
-echo "Waiting for deployment Available condition..."
+echo "Waiting for deployment replicas to match..."
 
-kubectl wait deployment "$DEPLOY" \
-  -n "$NS" \
-  --for=condition=Available=True \
-  --timeout=300s
+for i in {1..150}; do
+  READY=$(kubectl get deploy "$DEPLOY" -n "$NS" \
+    -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
 
-echo "Deployment is Available"
+  DESIRED=$(kubectl get deploy "$DEPLOY" -n "$NS" \
+    -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "1")
 
-# ----------------------------------------------------
-# Allow nginx stabilization for HTTP 200 check
-# ----------------------------------------------------
+  if [[ "$READY" == "$DESIRED" && "$READY" != "" ]]; then
+    echo "Deployment ready ($READY/$DESIRED)"
+    break
+  fi
+
+  sleep 2
+done
 
 echo "Allowing nginx stabilization..."
 sleep 60
