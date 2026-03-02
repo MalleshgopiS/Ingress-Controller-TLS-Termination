@@ -43,7 +43,7 @@ roleRef:
 EOF
 
 ############################################
-# Broken ConfigMap
+# BROKEN ConfigMap (invalid timeout)
 ############################################
 echo "Creating broken ConfigMap..."
 
@@ -53,14 +53,19 @@ kind: ConfigMap
 metadata:
   name: ingress-nginx-config
 data:
-  ssl-session-timeout: "0"
+  default.conf: |
+    server {
+      listen 80;
+      location / {
+        return 200 "OK";
+      }
+      ssl_session_timeout 0;
+    }
 EOF
 
 ############################################
 # Service
 ############################################
-echo "Creating service..."
-
 kubectl apply -n $NS -f - <<EOF
 apiVersion: v1
 kind: Service
@@ -75,10 +80,8 @@ spec:
 EOF
 
 ############################################
-# Deployment
+# Deployment (ConfigMap mounted)
 ############################################
-echo "Creating deployment..."
-
 kubectl apply -n $NS -f - <<EOF
 apiVersion: apps/v1
 kind: Deployment
@@ -103,33 +106,30 @@ spec:
         resources:
           limits:
             memory: "128Mi"
+        volumeMounts:
+        - name: nginx-config
+          mountPath: /etc/nginx/conf.d
+      volumes:
+      - name: nginx-config
+        configMap:
+          name: ingress-nginx-config
 EOF
 
 ############################################
-# WAIT FOR POD RUNNING
+# Wait until Ready
 ############################################
-echo "Waiting for pod to reach Running state..."
-
-for i in {1..60}; do
-  STATUS=$(kubectl get pods -n $NS -l app=ingress-controller \
-    -o jsonpath='{.items[0].status.phase}' 2>/dev/null || echo "")
-
-  if [[ "$STATUS" == "Running" ]]; then
-    echo "Pod is running."
-    break
-  fi
-
-  sleep 2
-done
+kubectl wait pod \
+  -n $NS \
+  -l app=ingress-controller \
+  --for=condition=Ready \
+  --timeout=300s
 
 ############################################
-# SAVE ORIGINAL UID
+# Save Deployment UID
 ############################################
-echo "Saving original UID..."
-
 mkdir -p /grader
 
-kubectl get deployment ingress-controller \
+kubectl get deploy ingress-controller \
   -n $NS \
   -o jsonpath='{.metadata.uid}' > /grader/original_uid
 

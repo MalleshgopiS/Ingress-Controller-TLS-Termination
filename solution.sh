@@ -2,34 +2,25 @@
 set -euo pipefail
 
 NS="ingress-system"
-DEPLOY="ingress-controller"
 
-echo "Patching ConfigMap..."
+echo "Fixing ssl_session_timeout..."
 
 kubectl patch configmap ingress-nginx-config \
   -n "$NS" \
   --type merge \
-  -p '{"data":{"ssl-session-timeout":"10m"}}'
+  -p '{"data":{"default.conf":"server {\n  listen 80;\n  location / {\n    return 200 \"OK\";\n  }\n  ssl_session_timeout 10m;\n}"}}'
 
-echo "Restarting deployment..."
+echo "Restarting pod to reload config..."
 
-kubectl rollout restart deployment "$DEPLOY" -n "$NS"
+kubectl delete pod -n "$NS" -l app=ingress-controller
 
-echo "Waiting for readyReplicas == 1..."
+kubectl wait pod \
+  -n "$NS" \
+  -l app=ingress-controller \
+  --for=condition=Ready \
+  --timeout=300s
 
-for i in {1..120}; do
-  READY=$(kubectl get deploy "$DEPLOY" -n "$NS" \
-    -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
-
-  if [[ "$READY" == "1" ]]; then
-    echo "Deployment ready"
-    break
-  fi
-
-  sleep 3
-done
-
-echo "Extra stabilization..."
-sleep 30
+echo "Allowing nginx warm-up..."
+sleep 20
 
 echo "✅ Fix applied successfully."
