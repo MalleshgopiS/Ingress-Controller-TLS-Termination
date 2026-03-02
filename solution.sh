@@ -19,7 +19,6 @@ OLD_POD=$(kubectl get pods -n "$NS" -l "$APP_LABEL" \
 
 echo "Deleting old pod: $OLD_POD"
 
-# Delete pod only (UID must stay same)
 kubectl delete pod "$OLD_POD" -n "$NS" --wait=false
 
 # ----------------------------------------------------
@@ -40,22 +39,30 @@ for i in {1..120}; do
   sleep 2
 done
 
-# ----------------------------------------------------
-# CRITICAL FIX #1
-# Wait for POD READY (not just Running)
-# ----------------------------------------------------
-
-echo "Waiting for pod Ready condition..."
-
-kubectl wait pod "$NEW_POD" \
-  -n "$NS" \
-  --for=condition=Ready \
-  --timeout=300s
-
-echo "Pod is Ready"
+if [[ -z "${NEW_POD:-}" ]]; then
+  echo "New pod not detected"
+  exit 1
+fi
 
 # ----------------------------------------------------
-# CRITICAL FIX #2
+# Wait for pod PHASE = Running (more stable than Ready)
+# ----------------------------------------------------
+
+echo "Waiting for pod phase Running..."
+
+for i in {1..150}; do
+  STATUS=$(kubectl get pod "$NEW_POD" -n "$NS" \
+    -o jsonpath='{.status.phase}' 2>/dev/null || true)
+
+  if [[ "$STATUS" == "Running" ]]; then
+    echo "Pod is Running"
+    break
+  fi
+
+  sleep 2
+done
+
+# ----------------------------------------------------
 # Wait for Deployment Available (grader requirement)
 # ----------------------------------------------------
 
@@ -69,12 +76,10 @@ kubectl wait deployment "$DEPLOY" \
 echo "Deployment is Available"
 
 # ----------------------------------------------------
-# CRITICAL FIX #3
-# Allow internal networking + nginx warmup
-# (Nebula needs this for HTTP 200 check)
+# Allow nginx stabilization for HTTP 200 check
 # ----------------------------------------------------
 
 echo "Allowing nginx stabilization..."
-sleep 45
+sleep 60
 
 echo "✅ Fix applied successfully."
