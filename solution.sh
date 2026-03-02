@@ -49,12 +49,22 @@ for i in {1..150}; do
   sleep 2
 done
 
-echo "Waiting for deployment availability (CRITICAL STEP)..."
+echo "Waiting for deployment replicas..."
 
-kubectl wait deployment "$DEPLOY" \
-  -n "$NS" \
-  --for=condition=Available=True \
-  --timeout=300s
+for i in {1..150}; do
+  READY=$(kubectl get deploy "$DEPLOY" -n "$NS" \
+    -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+
+  DESIRED=$(kubectl get deploy "$DEPLOY" -n "$NS" \
+    -o jsonpath='{.status.replicas}' 2>/dev/null || echo "1")
+
+  if [[ "$READY" == "$DESIRED" && "$READY" != "" ]]; then
+    echo "Deployment ready ($READY/$DESIRED)"
+    break
+  fi
+
+  sleep 2
+done
 
 echo "Extra stabilization..."
 sleep 25
