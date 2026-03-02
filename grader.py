@@ -21,9 +21,9 @@ import re
 import urllib.request
 
 
-# ---------------------------------------------------
-# Constants
-# ---------------------------------------------------
+# =====================================================
+# CONSTANTS
+# =====================================================
 
 NAMESPACE = "ingress-system"
 DEPLOYMENT = "ingress-controller"
@@ -31,30 +31,34 @@ CONFIGMAP = "ingress-nginx-config"
 SERVICE = "ingress-controller"
 
 
-# ---------------------------------------------------
-# Arena Result Object (REQUIRED INTERFACE)
-# ---------------------------------------------------
+# =====================================================
+# REQUIRED NEBULA RESULT OBJECT
+# =====================================================
 
 class GraderResult:
     """
-    Apex/Nebula expects:
-        result.score
-        result.feedback
-        result.subscores
+    Apex/Nebula grading interface.
+    REQUIRED attributes:
+        - score
+        - feedback
+        - subscores
+        - weights
     """
 
-    def __init__(self, score: float, feedback: str = "", subscores=None):
+    def __init__(self, score: float, feedback: str = "",
+                 subscores=None, weights=None):
         self.score = score
         self.feedback = feedback
         self.subscores = subscores or {}
+        self.weights = weights or {}
 
 
-# ---------------------------------------------------
-# Helpers
-# ---------------------------------------------------
+# =====================================================
+# HELPER FUNCTIONS
+# =====================================================
 
 def run(cmd):
-    """Run shell command safely"""
+    """Execute shell command safely."""
     try:
         result = subprocess.run(
             cmd,
@@ -69,7 +73,7 @@ def run(cmd):
 
 
 def wait_until(condition_fn, timeout=180, interval=3):
-    """Wait until condition becomes true"""
+    """Wait until condition succeeds."""
     start = time.time()
     while time.time() - start < timeout:
         if condition_fn():
@@ -80,7 +84,7 @@ def wait_until(condition_fn, timeout=180, interval=3):
 
 def valid_nginx_duration(value: str) -> bool:
     """
-    Valid examples:
+    Valid nginx duration examples:
         10m, 30s, 1h, 2d, 1w, 1M, 1y
     Must be non-zero.
     """
@@ -91,17 +95,17 @@ def valid_nginx_duration(value: str) -> bool:
     return re.match(pattern, value) is not None
 
 
-# ---------------------------------------------------
-# Grader Entry
-# ---------------------------------------------------
+# =====================================================
+# MAIN GRADER
+# =====================================================
 
 def grade(model_output: str = ""):
 
     scores = []
 
-    # ---------------------------------------------------
+    # -------------------------------------------------
     # 1. Deployment UID preserved
-    # ---------------------------------------------------
+    # -------------------------------------------------
 
     try:
         with open("/tmp/original_uid") as f:
@@ -118,9 +122,9 @@ def grade(model_output: str = ""):
     uid_ok = 1 if original_uid and current_uid == original_uid else 0
     scores.append(uid_ok)
 
-    # ---------------------------------------------------
+    # -------------------------------------------------
     # 2. Memory unchanged
-    # ---------------------------------------------------
+    # -------------------------------------------------
 
     memory = run([
         "kubectl", "get", "deployment", DEPLOYMENT,
@@ -131,9 +135,9 @@ def grade(model_output: str = ""):
     memory_ok = 1 if memory == "128Mi" else 0
     scores.append(memory_ok)
 
-    # ---------------------------------------------------
+    # -------------------------------------------------
     # 3. Image unchanged
-    # ---------------------------------------------------
+    # -------------------------------------------------
 
     image = run([
         "kubectl", "get", "deployment", DEPLOYMENT,
@@ -144,9 +148,9 @@ def grade(model_output: str = ""):
     image_ok = 1 if image == "nginx:1.25.3" else 0
     scores.append(image_ok)
 
-    # ---------------------------------------------------
-    # 4. ConfigMap timeout valid
-    # ---------------------------------------------------
+    # -------------------------------------------------
+    # 4. ssl-session-timeout valid
+    # -------------------------------------------------
 
     timeout_value = run([
         "kubectl", "get", "configmap", CONFIGMAP,
@@ -157,9 +161,9 @@ def grade(model_output: str = ""):
     timeout_ok = 1 if valid_nginx_duration(timeout_value) else 0
     scores.append(timeout_ok)
 
-    # ---------------------------------------------------
+    # -------------------------------------------------
     # 5. Deployment Available
-    # ---------------------------------------------------
+    # -------------------------------------------------
 
     def deployment_ready():
         status = run([
@@ -172,9 +176,9 @@ def grade(model_output: str = ""):
     deploy_ok = 1 if wait_until(deployment_ready) else 0
     scores.append(deploy_ok)
 
-    # ---------------------------------------------------
+    # -------------------------------------------------
     # 6. HTTP 200 check
-    # ---------------------------------------------------
+    # -------------------------------------------------
 
     port_forward = subprocess.Popen(
         [
@@ -199,9 +203,9 @@ def grade(model_output: str = ""):
     port_forward.terminate()
     scores.append(http_ok)
 
-    # ---------------------------------------------------
-    # 7. Restart count stable (≤1)
-    # ---------------------------------------------------
+    # -------------------------------------------------
+    # 7. Restart count stable
+    # -------------------------------------------------
 
     restart_count = run([
         "kubectl", "get", "pods",
@@ -217,9 +221,9 @@ def grade(model_output: str = ""):
 
     scores.append(restart_ok)
 
-    # ---------------------------------------------------
-    # Final Score + Subscores
-    # ---------------------------------------------------
+    # =================================================
+    # FINAL SCORE + SUBSCORES + WEIGHTS
+    # =================================================
 
     subscores = {
         "uid_preserved": uid_ok,
@@ -231,10 +235,14 @@ def grade(model_output: str = ""):
         "restart_stable": restart_ok,
     }
 
+    # equal weights required by arena
+    weights = {k: 1.0 for k in subscores.keys()}
+
     final_score = sum(scores) / len(scores)
 
     return GraderResult(
         score=final_score,
         feedback="Ingress Controller TLS Termination validation completed",
         subscores=subscores,
+        weights=weights,
     )
