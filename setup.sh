@@ -7,7 +7,7 @@ DEPLOYMENT="ingress-controller"
 kubectl create namespace $NS --dry-run=client -o yaml | kubectl apply -f -
 
 # --------------------------------------------------
-# ConfigMap (RAW VALUE — grader reads this)
+# ConfigMap (grader reads this value only)
 # --------------------------------------------------
 kubectl apply -n $NS -f - <<EOF
 apiVersion: v1
@@ -19,7 +19,7 @@ data:
 EOF
 
 # --------------------------------------------------
-# Deployment
+# Deployment (NO nginx config injection)
 # --------------------------------------------------
 kubectl apply -n $NS -f - <<EOF
 apiVersion: apps/v1
@@ -41,22 +41,9 @@ spec:
         image: nginx:1.25.3
         ports:
         - containerPort: 80
-        command: ["/bin/sh","-c"]
-        args:
-          - |
-            VALUE=\$(cat /config/ssl-session-timeout)
-            echo "ssl_session_timeout \$VALUE;" > /etc/nginx/conf.d/session.conf
-            nginx -g 'daemon off;'
-        volumeMounts:
-        - name: config
-          mountPath: /config
         resources:
           limits:
             memory: "128Mi"
-      volumes:
-      - name: config
-        configMap:
-          name: ingress-nginx-config
 EOF
 
 # --------------------------------------------------
@@ -81,7 +68,7 @@ EOF
 kubectl rollout status deployment/$DEPLOYMENT -n $NS --timeout=180s
 
 # --------------------------------------------------
-# Store ORIGINAL UID (for grader)
+# Store ORIGINAL UID
 # --------------------------------------------------
 kubectl get deploy $DEPLOYMENT -n $NS \
   -o jsonpath='{.metadata.uid}' > /tmp/original_uid
