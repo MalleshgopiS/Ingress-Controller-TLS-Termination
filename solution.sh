@@ -11,24 +11,18 @@ kubectl patch configmap ingress-nginx-config \
   --type merge \
   -p '{"data":{"ssl-session-timeout":"10m"}}'
 
-echo "Deleting ingress controller pod..."
+echo "Restarting deployment safely..."
 
-kubectl delete pod -n "$NS" -l app=ingress-controller
+kubectl rollout restart deployment "$DEPLOY" -n "$NS"
 
-echo "Waiting for deployment readyReplicas == 1..."
+echo "Waiting for deployment to become Available..."
 
-for i in {1..120}; do
-  READY=$(kubectl get deploy "$DEPLOY" -n "$NS" \
-    -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+kubectl wait deployment "$DEPLOY" \
+  -n "$NS" \
+  --for=condition=Available=True \
+  --timeout=300s
 
-  if [[ "$READY" == "1" ]]; then
-    break
-  fi
-
-  sleep 3
-done
-
-echo "Extra stabilization for Nebula..."
-sleep 45
+echo "Allowing nginx stabilization..."
+sleep 30
 
 echo "✅ Fix applied successfully."
