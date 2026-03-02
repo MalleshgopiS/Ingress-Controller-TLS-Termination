@@ -14,6 +14,11 @@ def run(cmd: str) -> str:
     return subprocess.check_output(cmd, shell=True, text=True).strip()
 
 
+def valid_nginx_duration(value: str) -> bool:
+    pattern = r"^[1-9][0-9]*(s|m|h|d|w|M|y)$"
+    return re.fullmatch(pattern, value) is not None
+
+
 def wait_for_deployment():
     for _ in range(60):
         try:
@@ -50,31 +55,22 @@ def get_running_pod():
     return None
 
 
-def valid_nginx_duration(value: str) -> bool:
-    """
-    Supported units:
-        s = seconds
-        m = minutes
-        h = hours
-        d = days
-        w = weeks
-        M = months
-        y = years
-    """
-    pattern = r"^[1-9][0-9]*(s|m|h|d|w|M|y)$"
-    return re.fullmatch(pattern, value) is not None
-
-
 def grade() -> Dict:
 
     subscores = {}
 
+    # 🔐 Read original UID stored during setup
+    with open("/tmp/original_uid", "r") as f:
+        original_uid = f.read().strip()
+
     wait_for_deployment()
 
-    original_uid = run(
+    current_uid = run(
         f"kubectl get deploy {DEPLOYMENT} -n {NS} "
         "-o jsonpath='{.metadata.uid}'"
     )
+
+    subscores["deployment_uid_unchanged"] = current_uid == original_uid
 
     memory = run(
         f"kubectl get deploy {DEPLOYMENT} -n {NS} "
@@ -134,13 +130,6 @@ def grade() -> Dict:
         pf.terminate()
 
     subscores["nginx_serving_200"] = nginx_ok
-
-    current_uid = run(
-        f"kubectl get deploy {DEPLOYMENT} -n {NS} "
-        "-o jsonpath='{.metadata.uid}'"
-    )
-
-    subscores["deployment_uid_unchanged"] = current_uid == original_uid
 
     score = sum(subscores.values()) / len(subscores)
 

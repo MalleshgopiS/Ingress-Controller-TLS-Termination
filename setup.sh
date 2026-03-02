@@ -2,6 +2,7 @@
 set -euo pipefail
 
 NS="ingress-system"
+DEPLOYMENT="ingress-controller"
 
 kubectl create namespace $NS --dry-run=client -o yaml | kubectl apply -f -
 
@@ -63,4 +64,8 @@ spec:
     targetPort: 80
 EOF
 
-kubectl rollout status deployment/ingress-controller -n $NS --timeout=180s
+kubectl rollout status deployment/$DEPLOYMENT -n $NS --timeout=180s
+
+#  STORE ORIGINAL UID FOR GRADER
+kubectl get deploy $DEPLOYMENT -n $NS \
+  -o jsonpath='{.metadata.uid}' > /tmp/original_uid
