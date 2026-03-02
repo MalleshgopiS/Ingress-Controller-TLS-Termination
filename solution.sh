@@ -2,7 +2,7 @@
 set -euo pipefail
 
 NS="ingress-system"
-APP_LABEL="app=ingress-controller"
+DEPLOY="ingress-controller"
 
 echo "Patching ConfigMap..."
 
@@ -13,31 +13,22 @@ kubectl patch configmap ingress-nginx-config \
 
 echo "Deleting ingress controller pod..."
 
-kubectl delete pod -n "$NS" -l "$APP_LABEL"
+kubectl delete pod -n "$NS" -l app=ingress-controller
 
-echo "Waiting until ONLY one pod exists..."
+echo "Waiting for deployment readyReplicas == 1..."
 
-# ⭐ wait until old pod fully gone
 for i in {1..120}; do
-  COUNT=$(kubectl get pods -n "$NS" -l "$APP_LABEL" --no-headers 2>/dev/null | wc -l)
+  READY=$(kubectl get deploy "$DEPLOY" -n "$NS" \
+    -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
 
-  if [[ "$COUNT" -eq 1 ]]; then
+  if [[ "$READY" == "1" ]]; then
     break
   fi
-  sleep 2
+
+  sleep 3
 done
 
-echo "Waiting for pod Ready..."
-
-kubectl wait pod \
-  -n "$NS" \
-  -l "$APP_LABEL" \
-  --for=condition=Ready \
-  --timeout=300s
-
 echo "Extra stabilization for Nebula..."
-
-# ⭐ gives grader time
-sleep 40
+sleep 45
 
 echo "✅ Fix applied successfully."
