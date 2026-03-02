@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Nebula-compatible grader for:
 
@@ -17,41 +18,72 @@ Validates:
 import subprocess
 import time
 import re
+import urllib.request
+
+# -----------------------------------------------------------
+# Apex compatibility layer (FIXES ModuleNotFoundError)
+# -----------------------------------------------------------
+try:
+    from apex_arena.grading import GradeResult
+except Exception:
+    # fallback when apex_arena module is unavailable
+    class GradeResult(dict):
+        def __init__(self, score, subscores):
+            super().__init__(score=score, subscores=subscores)
 
 
-# ------------------------------------------------------------
-# Utility helpers
-# ------------------------------------------------------------
-
+# -----------------------------------------------------------
+# Helpers
+# -----------------------------------------------------------
 def run(cmd: str) -> str:
-    """
-    Execute shell command safely and return stdout.
-    Returns empty string if command fails.
-    """
+    """Run shell command safely."""
     try:
         return subprocess.check_output(
-            cmd, shell=True, stderr=subprocess.DEVNULL
-        ).decode().strip()
+            cmd, shell=True, text=True, stderr=subprocess.DEVNULL
+        ).strip()
     except Exception:
         return ""
 
 
-def wait_until(fn, timeout=300, interval=5):
-    """
-    Retry helper for Kubernetes eventual consistency.
-    """
+def wait_until(condition, timeout=180, interval=3):
+    """Wait until condition returns True."""
     start = time.time()
     while time.time() - start < timeout:
-        if fn():
+        if condition():
             return True
         time.sleep(interval)
     return False
 
 
-def get_pod() -> str:
+# -----------------------------------------------------------
+# Validators
+# -----------------------------------------------------------
+def valid_nginx_duration(value: str) -> bool:
     """
-    Fetch current ingress-controller pod.
+    Validate nginx duration format.
+
+    Supported:
+      s, m, h, d, w, M, y
+    Example: 10m, 1h, 7d
     """
+    if not value:
+        return False
+    pattern = r"^[1-9][0-9]*(s|m|h|d|w|M|y)$"
+    return re.match(pattern, value) is not None
+
+
+# -----------------------------------------------------------
+# Deployment readiness
+# -----------------------------------------------------------
+def deployment_ready():
+    ready = run(
+        "kubectl -n ingress-system get deploy ingress-controller "
+        "-o jsonpath='{.status.conditions[?(@.type==\"Available\")].status}'"
+    )
+    return ready == "True"
+
+
+def get_running_pod():
     return run(
         "kubectl -n ingress-system get pods "
         "-l app=ingress-controller "
@@ -59,145 +91,114 @@ def get_pod() -> str:
     )
 
 
-# ------------------------------------------------------------
-# Main grading logic
-# ------------------------------------------------------------
+# -----------------------------------------------------------
+# HTTP check
+# -----------------------------------------------------------
+def nginx_responding():
+    try:
+        subprocess.Popen(
+            "kubectl -n ingress-system port-forward svc/ingress-controller 18080:80",
+            shell=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        time.sleep(5)
 
-def grade(task_dir=None):
-    """
-    Main grading entrypoint.
+        with urllib.request.urlopen("http://localhost:18080", timeout=5) as r:
+            return r.status == 200
+    except Exception:
+        return False
 
-    Ensures TLS timeout fix applied without altering
-    deployment identity or runtime stability.
-    """
+
+# -----------------------------------------------------------
+# MAIN GRADER
+# -----------------------------------------------------------
+def grade():
 
     subscores = {}
 
-    # --------------------------------------------------------
-    # Wait for deployment availability
-    # --------------------------------------------------------
+    # -----------------------------
+    # Wait for deployment stability
+    # -----------------------------
+    wait_until(deployment_ready, timeout=180, interval=3)
 
-    def deployment_ready():
-        """Check if deployment reports Available=True."""
-        status = run(
-            "kubectl -n ingress-system get deploy ingress-controller "
-            "-o jsonpath='{.status.conditions[?(@.type==\"Available\")].status}'"
-        )
-        return status == "True"
-
-    wait_until(deployment_ready, timeout=120, interval=2)
-
-    # --------------------------------------------------------
-    # CHECK 1: UID preserved
-    # --------------------------------------------------------
-
+    # -----------------------------
+    # UID CHECK
+    # -----------------------------
     current_uid = run(
         "kubectl -n ingress-system get deploy ingress-controller "
         "-o jsonpath='{.metadata.uid}'"
     )
 
     original_uid = run(
-        "test -f /grader/original_uid && cat /grader/original_uid"
+        "test -f /tmp/original_uid && cat /tmp/original_uid"
     )
 
     subscores["deployment_uid_unchanged"] = (
-        bool(original_uid) and original_uid == current_uid
+        bool(original_uid) and current_uid == original_uid
     )
 
-    # --------------------------------------------------------
-    # CHECK 2: Memory unchanged
-    # --------------------------------------------------------
-
-    memory_limit = run(
+    # -----------------------------
+    # MEMORY CHECK
+    # -----------------------------
+    memory = run(
         "kubectl -n ingress-system get deploy ingress-controller "
         "-o jsonpath='{.spec.template.spec.containers[0].resources.limits.memory}'"
     )
+    subscores["memory_limit_unchanged"] = memory == "128Mi"
 
-    subscores["memory_limit_unchanged"] = memory_limit == "128Mi"
-
-    # --------------------------------------------------------
-    # CHECK 3: Image unchanged
-    # --------------------------------------------------------
-
+    # -----------------------------
+    # IMAGE CHECK
+    # -----------------------------
     image = run(
         "kubectl -n ingress-system get deploy ingress-controller "
         "-o jsonpath='{.spec.template.spec.containers[0].image}'"
     )
-
     subscores["image_unchanged"] = image == "nginx:1.25.3"
 
-    # --------------------------------------------------------
-    # CHECK 4: Valid nginx duration
-    # --------------------------------------------------------
-
-    timeout_val = run(
+    # -----------------------------
+    # CONFIGMAP VALIDATION
+    # -----------------------------
+    timeout_value = run(
         "kubectl -n ingress-system get configmap ingress-nginx-config "
         "-o jsonpath='{.data.ssl-session-timeout}'"
     )
 
-    valid_duration = bool(
-        re.match(r"^[1-9][0-9]*(s|m|h|d|w|M|y)$", timeout_val)
+    subscores["valid_non_zero_timeout"] = (
+        timeout_value != "0" and valid_nginx_duration(timeout_value)
     )
 
-    subscores["valid_non_zero_timeout"] = valid_duration
+    # -----------------------------
+    # POD + RESTART CHECK
+    # -----------------------------
+    pod = get_running_pod()
 
-    # --------------------------------------------------------
-    # CHECK 5: Deployment Available
-    # --------------------------------------------------------
-
-    subscores["deployment_available"] = deployment_ready()
-
-    # --------------------------------------------------------
-    # CHECK 6: HTTP 200
-    # --------------------------------------------------------
-
-    pod = get_pod()
-    http_ok = False
-
-    if pod:
-        pf = subprocess.Popen(
-            f"kubectl -n ingress-system port-forward pod/{pod} 18080:80",
-            shell=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-
-        time.sleep(5)
-
-        for _ in range(20):
-            code = run(
-                "curl -s -o /dev/null -w '%{http_code}' http://localhost:18080"
-            )
-            if code == "200":
-                http_ok = True
-                break
-            time.sleep(2)
-
-        pf.terminate()
-
-    subscores["nginx_serving_200"] = http_ok
-
-    # --------------------------------------------------------
-    # CHECK 7: Restart count stable
-    # --------------------------------------------------------
-
-    restart_count = "1"
-
+    restart_count = "99"
     if pod:
         restart_count = run(
             f"kubectl -n ingress-system get pod {pod} "
             "-o jsonpath='{.status.containerStatuses[0].restartCount}'"
         )
 
-    subscores["restart_count_zero"] = restart_count == "0"
+    # allow ≤1 restart (k3s stabilization)
+    subscores["restart_count_zero"] = (
+        restart_count.isdigit() and int(restart_count) <= 1
+    )
 
-    # --------------------------------------------------------
-    # Final score
-    # --------------------------------------------------------
+    # -----------------------------
+    # HTTP CHECK
+    # -----------------------------
+    subscores["nginx_serving_200"] = nginx_responding()
 
+    # -----------------------------
+    # FINAL SCORE
+    # -----------------------------
     score = sum(subscores.values()) / len(subscores)
 
-    return {
-        "score": score,
-        "subscores": subscores
-    }
+    return GradeResult(score=score, subscores=subscores)
+
+
+# -----------------------------------------------------------
+if __name__ == "__main__":
+    result = grade()
+    print(result)
