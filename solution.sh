@@ -2,7 +2,7 @@
 set -euo pipefail
 
 NS="ingress-system"
-DEPLOY="ingress-controller"
+APP_LABEL="app=ingress-controller"
 
 echo "Patching ConfigMap..."
 
@@ -11,26 +11,18 @@ kubectl patch configmap ingress-nginx-config \
   --type merge \
   -p '{"data":{"ssl-session-timeout":"10m"}}'
 
-echo "Restarting deployment..."
+echo "Deleting existing pod to reload config..."
 
-kubectl rollout restart deployment "$DEPLOY" -n "$NS"
-
-# ----------------------------------------------------
-# DO NOT use rollout status (causes timeout in Nebula)
-# ----------------------------------------------------
-
-echo "Waiting for deployment to become Available..."
-
-kubectl wait deployment "$DEPLOY" \
+kubectl delete pod \
   -n "$NS" \
-  --for=condition=Available=True \
-  --timeout=600s
+  -l "$APP_LABEL" \
+  --wait=true
 
-echo "Waiting for pod Ready..."
+echo "Waiting for new pod Ready..."
 
 kubectl wait pod \
   -n "$NS" \
-  -l app=ingress-controller \
+  -l "$APP_LABEL" \
   --for=condition=Ready \
   --timeout=600s
 
