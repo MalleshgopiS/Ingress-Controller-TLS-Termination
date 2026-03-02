@@ -59,8 +59,6 @@ EOF
 ############################################
 # Service
 ############################################
-echo "Creating service..."
-
 kubectl apply -n $NS -f - <<EOF
 apiVersion: v1
 kind: Service
@@ -77,8 +75,6 @@ EOF
 ############################################
 # Deployment
 ############################################
-echo "Creating deployment..."
-
 kubectl apply -n $NS -f - <<EOF
 apiVersion: apps/v1
 kind: Deployment
@@ -106,31 +102,22 @@ spec:
 EOF
 
 ############################################
-# WAIT FOR POD RUNNING
+# WAIT READY (Nebula-safe)
 ############################################
-echo "Waiting for pod to reach Running state..."
+echo "Waiting for pod Ready..."
 
-for i in {1..60}; do
-  STATUS=$(kubectl get pods -n $NS -l app=ingress-controller \
-    -o jsonpath='{.items[0].status.phase}' 2>/dev/null || echo "")
-
-  if [[ "$STATUS" == "Running" ]]; then
-    echo "Pod is running."
-    break
-  fi
-
-  sleep 2
-done
+kubectl wait pod \
+  -n $NS \
+  -l app=ingress-controller \
+  --for=condition=Ready \
+  --timeout=300s
 
 ############################################
-# SAVE ORIGINAL UID
+# SAVE UID
 ############################################
-echo "Saving original UID..."
-
 mkdir -p /grader
 
-kubectl get deployment ingress-controller \
-  -n $NS \
+kubectl get deploy ingress-controller -n $NS \
   -o jsonpath='{.metadata.uid}' > /grader/original_uid
 
 echo "✅ Setup complete."
