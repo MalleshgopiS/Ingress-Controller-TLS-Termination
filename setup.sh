@@ -6,6 +6,9 @@ DEPLOYMENT="ingress-controller"
 
 kubectl create namespace $NS --dry-run=client -o yaml | kubectl apply -f -
 
+# --------------------------------------------------
+# ConfigMap (RAW VALUE — grader reads this)
+# --------------------------------------------------
 kubectl apply -n $NS -f - <<EOF
 apiVersion: v1
 kind: ConfigMap
@@ -15,6 +18,9 @@ data:
   ssl-session-timeout: "0"
 EOF
 
+# --------------------------------------------------
+# Deployment
+# --------------------------------------------------
 kubectl apply -n $NS -f - <<EOF
 apiVersion: apps/v1
 kind: Deployment
@@ -35,22 +41,27 @@ spec:
         image: nginx:1.25.3
         ports:
         - containerPort: 80
+        command: ["/bin/sh","-c"]
+        args:
+          - |
+            VALUE=\$(cat /config/ssl-session-timeout)
+            echo "ssl_session_timeout \$VALUE;" > /etc/nginx/conf.d/session.conf
+            nginx -g 'daemon off;'
+        volumeMounts:
+        - name: config
+          mountPath: /config
         resources:
           limits:
             memory: "128Mi"
-        volumeMounts:
-        - name: nginx-config
-          mountPath: /etc/nginx/conf.d/session.conf
-          subPath: session.conf
       volumes:
-      - name: nginx-config
+      - name: config
         configMap:
           name: ingress-nginx-config
-          items:
-          - key: ssl-session-timeout
-            path: session.conf
 EOF
 
+# --------------------------------------------------
+# Service
+# --------------------------------------------------
 kubectl apply -n $NS -f - <<EOF
 apiVersion: v1
 kind: Service
@@ -64,8 +75,13 @@ spec:
     targetPort: 80
 EOF
 
+# --------------------------------------------------
+# Wait for Ready
+# --------------------------------------------------
 kubectl rollout status deployment/$DEPLOYMENT -n $NS --timeout=180s
 
-#  STORE ORIGINAL UID FOR GRADER
+# --------------------------------------------------
+# Store ORIGINAL UID (for grader)
+# --------------------------------------------------
 kubectl get deploy $DEPLOYMENT -n $NS \
   -o jsonpath='{.metadata.uid}' > /tmp/original_uid
