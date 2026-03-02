@@ -13,10 +13,7 @@ kubectl patch configmap "$CM" -n "$NS" \
 echo "Triggering rollout restart..."
 kubectl rollout restart deployment "$DEPLOY" -n "$NS"
 
-echo "Waiting for rollout to complete..."
-kubectl rollout status deployment "$DEPLOY" \
-  -n "$NS" \
-  --timeout=180s
+# ❌ REMOVE rollout status (causes timeout in Nebula)
 
 echo "Waiting for deployment to become Available..."
 kubectl wait deployment "$DEPLOY" \
