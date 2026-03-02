@@ -1,5 +1,19 @@
 #!/usr/bin/env python3
+"""
+Grader for: Ingress Controller TLS Termination
 
+This grader validates the following criteria:
+
+1. Deployment UID is preserved (no recreation).
+2. Memory limit remains exactly 128Mi.
+3. Container image remains nginx:1.25.3.
+4. ssl_session_timeout is updated to a valid non-zero value.
+5. Deployment becomes Ready (readyReplicas == 1).
+6. Nginx serves HTTP 200 responses.
+7. Container restart count remains stable.
+
+Final score is the mean of all 7 checks.
+"""
 
 import subprocess
 import time

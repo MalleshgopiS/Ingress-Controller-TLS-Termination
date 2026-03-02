@@ -1,4 +1,26 @@
 #!/usr/bin/env bash
+#
+# ------------------------------------------------------------
+# Setup Script: Ingress Controller TLS Termination (Broken State)
+# ------------------------------------------------------------
+#
+# This script prepares the initial broken Kubernetes environment.
+#
+# It performs the following:
+#   1. Creates the namespace `ingress-system`
+#   2. Grants ubuntu-user RBAC permissions
+#   3. Creates a broken ConfigMap containing invalid ssl_session_timeout (0)
+#   4. Creates a Service exposing nginx on port 80
+#   5. Deploys nginx:1.25.3 with memory limit 128Mi
+#   6. Mounts the ConfigMap into nginx configuration
+#   7. Waits for the pod to become Ready
+#   8. Saves the original Deployment UID for grader validation
+#
+# The Deployment must NOT be recreated during the solution.
+# Only the ConfigMap should be fixed.
+#
+# ------------------------------------------------------------
+
 set -euo pipefail
 
 NS="ingress-system"
@@ -43,7 +65,7 @@ roleRef:
 EOF
 
 ############################################
-# BROKEN ConfigMap (invalid timeout)
+# Broken ConfigMap
 ############################################
 echo "Creating broken ConfigMap..."
 
@@ -80,7 +102,7 @@ spec:
 EOF
 
 ############################################
-# Deployment (ConfigMap mounted)
+# Deployment
 ############################################
 kubectl apply -n $NS -f - <<EOF
 apiVersion: apps/v1
@@ -115,22 +137,12 @@ spec:
           name: ingress-nginx-config
 EOF
 
-############################################
-# Wait until Ready
-############################################
-kubectl wait pod \
-  -n $NS \
-  -l app=ingress-controller \
-  --for=condition=Ready \
-  --timeout=300s
+echo "Waiting for pod Ready..."
+kubectl wait pod -n $NS -l app=ingress-controller \
+  --for=condition=Ready --timeout=300s
 
-############################################
-# Save Deployment UID
-############################################
 mkdir -p /grader
-
-kubectl get deploy ingress-controller \
-  -n $NS \
+kubectl get deploy ingress-controller -n $NS \
   -o jsonpath='{.metadata.uid}' > /grader/original_uid
 
 echo "✅ Setup complete."
