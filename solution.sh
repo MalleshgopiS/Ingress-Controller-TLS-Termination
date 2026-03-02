@@ -11,24 +11,30 @@ kubectl patch configmap ingress-nginx-config \
   --type merge \
   -p '{"data":{"ssl-session-timeout":"10m"}}'
 
-echo "Restarting deployment safely..."
+echo "Restarting deployment..."
 
 kubectl rollout restart deployment "$DEPLOY" -n "$NS"
 
-echo "Waiting for rollout to finish..."
+# ----------------------------------------------------
+# DO NOT use rollout status (causes timeout in Nebula)
+# ----------------------------------------------------
 
-kubectl rollout status deployment "$DEPLOY" \
-  -n "$NS" \
-  --timeout=300s
-
-echo "Ensuring Deployment Available condition..."
+echo "Waiting for deployment to become Available..."
 
 kubectl wait deployment "$DEPLOY" \
   -n "$NS" \
   --for=condition=Available=True \
-  --timeout=300s
+  --timeout=600s
 
-echo "Stabilizing nginx..."
-sleep 15
+echo "Waiting for pod Ready..."
+
+kubectl wait pod \
+  -n "$NS" \
+  -l app=ingress-controller \
+  --for=condition=Ready \
+  --timeout=600s
+
+echo "Allowing nginx warm-up..."
+sleep 20
 
 echo "✅ Fix applied successfully."
