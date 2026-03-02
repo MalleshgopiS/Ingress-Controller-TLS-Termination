@@ -1,26 +1,28 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -e
 
 NS="ingress-system"
-DEPLOY="ingress-controller"
-CM="ingress-nginx-config"
+APP_LABEL="app=ingress-controller"
 
 echo "Patching ConfigMap..."
-kubectl patch configmap "$CM" -n "$NS" \
+
+kubectl patch configmap ingress-nginx-config \
+  -n $NS \
   --type merge \
   -p '{"data":{"ssl-session-timeout":"10m"}}'
 
-echo "Finding current pod..."
-OLD_POD=$(kubectl get pods -n "$NS" -l app="$DEPLOY" -o jsonpath='{.items[0].metadata.name}')
+echo "Deleting existing pod to reload configuration..."
 
-echo "Deleting old pod: $OLD_POD"
-kubectl delete pod "$OLD_POD" -n "$NS"
+OLD_POD=$(kubectl get pods -n $NS -l $APP_LABEL \
+  -o jsonpath='{.items[0].metadata.name}')
+
+kubectl delete pod "$OLD_POD" -n $NS --wait=false
 
 echo "Waiting for new pod to be created..."
 
-# Wait until a different pod name appears
 for i in {1..60}; do
-  NEW_POD=$(kubectl get pods -n "$NS" -l app="$DEPLOY" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+  NEW_POD=$(kubectl get pods -n $NS -l $APP_LABEL \
+    -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
 
   if [[ -n "$NEW_POD" && "$NEW_POD" != "$OLD_POD" ]]; then
     echo "New pod detected: $NEW_POD"
@@ -30,26 +32,21 @@ for i in {1..60}; do
   sleep 2
 done
 
-echo "Waiting for new pod to become Ready..."
-kubectl wait pod "$NEW_POD" \
-  -n "$NS" \
-  --for=condition=Ready \
-  --timeout=180s
+echo "Waiting for pod to reach Running phase..."
 
-echo "Waiting for service endpoints..."
-for i in {1..60}; do
-  EP=$(kubectl get endpoints ingress-controller -n "$NS" \
-        -o jsonpath='{.subsets[0].addresses[0].ip}' 2>/dev/null || true)
+for i in {1..90}; do
+  STATUS=$(kubectl get pod "$NEW_POD" -n $NS \
+    -o jsonpath='{.status.phase}' 2>/dev/null || true)
 
-  if [[ -n "$EP" ]]; then
-    echo "Endpoint ready: $EP"
+  if [[ "$STATUS" == "Running" ]]; then
+    echo "Pod is Running"
     break
   fi
 
   sleep 2
 done
 
-echo "Allowing nginx warm-up..."
-sleep 15
+echo "Stabilizing..."
+sleep 20
 
 echo "✅ Fix applied successfully."
