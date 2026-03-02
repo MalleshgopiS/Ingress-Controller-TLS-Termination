@@ -20,8 +20,6 @@ import time
 import re
 import urllib.request
 
-from apex_arena.grading import GraderResult
-
 
 NAMESPACE = "ingress-system"
 DEPLOYMENT = "ingress-controller"
@@ -69,16 +67,14 @@ def valid_nginx_duration(value: str) -> bool:
 
 
 # ---------------------------------------------------
-# Grader
+# Grader (Nebula Compatible)
 # ---------------------------------------------------
 
 def grade(model_output: str = ""):
 
     scores = []
 
-    # -------------------------
     # 1. UID CHECK
-    # -------------------------
     try:
         with open("/tmp/original_uid") as f:
             original_uid = f.read().strip()
@@ -93,9 +89,7 @@ def grade(model_output: str = ""):
 
     scores.append(1 if original_uid and current_uid == original_uid else 0)
 
-    # -------------------------
     # 2. MEMORY CHECK
-    # -------------------------
     memory = run([
         "kubectl", "get", "deployment", DEPLOYMENT,
         "-n", NAMESPACE,
@@ -104,9 +98,7 @@ def grade(model_output: str = ""):
 
     scores.append(1 if memory == "128Mi" else 0)
 
-    # -------------------------
     # 3. IMAGE CHECK
-    # -------------------------
     image = run([
         "kubectl", "get", "deployment", DEPLOYMENT,
         "-n", NAMESPACE,
@@ -115,9 +107,7 @@ def grade(model_output: str = ""):
 
     scores.append(1 if image == "nginx:1.25.3" else 0)
 
-    # -------------------------
     # 4. CONFIGMAP VALIDATION
-    # -------------------------
     timeout_value = run([
         "kubectl", "get", "configmap", CONFIGMAP,
         "-n", NAMESPACE,
@@ -126,9 +116,7 @@ def grade(model_output: str = ""):
 
     scores.append(1 if valid_nginx_duration(timeout_value) else 0)
 
-    # -------------------------
     # 5. DEPLOYMENT AVAILABLE
-    # -------------------------
     def deployment_ready():
         status = run([
             "kubectl", "get", "deployment", DEPLOYMENT,
@@ -139,9 +127,7 @@ def grade(model_output: str = ""):
 
     scores.append(1 if wait_until(deployment_ready) else 0)
 
-    # -------------------------
     # 6. HTTP 200 CHECK
-    # -------------------------
     port_forward = subprocess.Popen(
         ["kubectl", "port-forward",
          f"svc/{SERVICE}", "18080:80",
@@ -163,9 +149,7 @@ def grade(model_output: str = ""):
     port_forward.terminate()
     scores.append(http_ok)
 
-    # -------------------------
     # 7. RESTART COUNT CHECK
-    # -------------------------
     restart_count = run([
         "kubectl", "get", "pods",
         "-n", NAMESPACE,
@@ -181,4 +165,7 @@ def grade(model_output: str = ""):
 
     final_score = sum(scores) / len(scores)
 
-    return GraderResult(score=final_score)
+    return {
+        "score": final_score,
+        "feedback": "Ingress Controller TLS Termination validation completed"
+    }
