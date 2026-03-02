@@ -40,7 +40,7 @@ for i in {1..120}; do
   sleep 2
 done
 
-echo "Waiting for pod to reach Running phase..."
+echo "Waiting for pod Running..."
 
 for i in {1..150}; do
   STATUS=$(kubectl get pod "$NEW_POD" -n $NS \
@@ -50,18 +50,28 @@ for i in {1..150}; do
     echo "Pod is Running"
     break
   fi
+  sleep 2
+done
+
+# =====================================================
+# NEBULA-SAFE DEPLOYMENT CHECK (NO kubectl wait)
+# =====================================================
+
+echo "Waiting for deployment availability..."
+
+for i in {1..150}; do
+  AVAILABLE=$(kubectl get deployment $DEPLOY -n $NS \
+    -o jsonpath='{.status.availableReplicas}' 2>/dev/null || echo "0")
+
+  if [[ "$AVAILABLE" == "1" ]]; then
+    echo "Deployment is Available"
+    break
+  fi
 
   sleep 2
 done
 
-echo "Waiting for deployment Available..."
-
-kubectl wait deployment/$DEPLOY \
-  -n $NS \
-  --for=condition=Available=True \
-  --timeout=300s
-
 echo "Stabilizing..."
 sleep 10
 
-echo "✅ Fix applied successfully."
+echo "Fix applied successfully."
