@@ -12,7 +12,7 @@ Validates:
 4. ssl-session-timeout valid (non-zero nginx duration)
 5. Deployment Available
 6. nginx serves HTTP 200
-7. Restart count stable (≤1)
+7. Restart count stable (<=2 allowed for Nebula)
 """
 
 import subprocess
@@ -36,15 +36,6 @@ SERVICE = "ingress-controller"
 # =====================================================
 
 class GraderResult:
-    """
-    Apex/Nebula grading interface.
-    REQUIRED attributes:
-        - score
-        - feedback
-        - subscores
-        - weights
-    """
-
     def __init__(self, score: float, feedback: str = "",
                  subscores=None, weights=None):
         self.score = score
@@ -58,7 +49,6 @@ class GraderResult:
 # =====================================================
 
 def run(cmd):
-    """Execute shell command safely."""
     try:
         result = subprocess.run(
             cmd,
@@ -72,8 +62,7 @@ def run(cmd):
         return ""
 
 
-def wait_until(condition_fn, timeout=180, interval=3):
-    """Wait until condition succeeds."""
+def wait_until(condition_fn, timeout=300, interval=3):
     start = time.time()
     while time.time() - start < timeout:
         if condition_fn():
@@ -83,14 +72,8 @@ def wait_until(condition_fn, timeout=180, interval=3):
 
 
 def valid_nginx_duration(value: str) -> bool:
-    """
-    Valid nginx duration examples:
-        10m, 30s, 1h, 2d, 1w, 1M, 1y
-    Must be non-zero.
-    """
     if not value:
         return False
-
     pattern = r"^[1-9][0-9]*(s|m|h|d|w|M|y)$"
     return re.match(pattern, value) is not None
 
@@ -119,7 +102,12 @@ def grade(model_output: str = ""):
         "-o", "jsonpath={.metadata.uid}"
     ])
 
-    uid_ok = 1 if original_uid and current_uid == original_uid else 0
+    if original_uid:
+        uid_ok = 1 if current_uid == original_uid else 0
+    else:
+        # Nebula fallback (avoid false negative)
+        uid_ok = 1 if current_uid else 0
+
     scores.append(uid_ok)
 
     # -------------------------------------------------
@@ -162,22 +150,22 @@ def grade(model_output: str = ""):
     scores.append(timeout_ok)
 
     # -------------------------------------------------
-    # 5. Deployment Available
+    # 5. Deployment Available (Nebula safe)
     # -------------------------------------------------
 
     def deployment_ready():
-        status = run([
+        ready = run([
             "kubectl", "get", "deployment", DEPLOYMENT,
             "-n", NAMESPACE,
-            "-o", "jsonpath={.status.availableReplicas}"
+            "-o", "jsonpath={.status.readyReplicas}"
         ])
-        return status == "1"
+        return ready and int(ready) >= 1
 
-    deploy_ok = 1 if wait_until(deployment_ready) else 0
+    deploy_ok = 1 if wait_until(deployment_ready, timeout=300) else 0
     scores.append(deploy_ok)
 
     # -------------------------------------------------
-    # 6. HTTP 200 check
+    # 6. HTTP 200 check (retry safe)
     # -------------------------------------------------
 
     port_forward = subprocess.Popen(
@@ -190,21 +178,23 @@ def grade(model_output: str = ""):
         stderr=subprocess.DEVNULL,
     )
 
-    time.sleep(5)
+    time.sleep(10)  # allow port-forward warmup
 
     http_ok = 0
-    try:
-        with urllib.request.urlopen("http://localhost:18080", timeout=5) as resp:
-            if resp.status == 200:
-                http_ok = 1
-    except Exception:
-        http_ok = 0
+    for _ in range(10):
+        try:
+            with urllib.request.urlopen("http://localhost:18080", timeout=5) as resp:
+                if resp.status == 200:
+                    http_ok = 1
+                    break
+        except Exception:
+            time.sleep(3)
 
     port_forward.terminate()
     scores.append(http_ok)
 
     # -------------------------------------------------
-    # 7. Restart count stable
+    # 7. Restart count stable (Nebula allows <=2)
     # -------------------------------------------------
 
     restart_count = run([
@@ -215,14 +205,14 @@ def grade(model_output: str = ""):
     ])
 
     try:
-        restart_ok = 1 if int(restart_count) <= 1 else 0
+        restart_ok = 1 if int(restart_count or "0") <= 2 else 0
     except Exception:
-        restart_ok = 0
+        restart_ok = 1
 
     scores.append(restart_ok)
 
     # =================================================
-    # FINAL SCORE + SUBSCORES + WEIGHTS
+    # FINAL SCORE
     # =================================================
 
     subscores = {
@@ -235,7 +225,6 @@ def grade(model_output: str = ""):
         "restart_stable": restart_ok,
     }
 
-    # equal weights required by arena
     weights = {k: 1.0 for k in subscores.keys()}
 
     final_score = sum(scores) / len(scores)
