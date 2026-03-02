@@ -1,55 +1,69 @@
-id: ingress-controller-tls-termination
-
-title: Fix TLS Session Timeout Misconfiguration in Ingress Controller
-
-difficulty: hard
+name: ingress-controller-tls-termination
 
 description: |
-  A Kubernetes ingress controller is experiencing instability due to an
-  incorrect TLS session cache configuration.
+  The ingress controller in the `ingress-system` namespace has a TLS session
+  misconfiguration causing session caching to be disabled.
 
-  The ConfigMap `ingress-nginx-config` contains the setting:
+  The ConfigMap `ingress-nginx-config` currently contains:
 
       ssl-session-timeout: "0"
 
-  A timeout value of "0" disables session expiration, allowing TLS sessions
-  to accumulate indefinitely and causing memory growth over time.
+  A timeout value of "0" disables TLS session caching, which can cause
+  excessive memory usage and periodic instability under load.
 
-  Your task is to correct this configuration safely without disrupting
-  the existing Deployment.
+  Your task is to fix this configuration safely.
+
+  You must update the ConfigMap to set `ssl-session-timeout`
+  to a valid, non-zero nginx duration value.
+
+  IMPORTANT:
+  You must not recreate or delete the Deployment.
+  The Deployment UID must remain unchanged.
+
+  The ingress controller must continue serving HTTP traffic normally.
 
 environment:
   namespace: ingress-system
   deployment: ingress-controller
   configmap: ingress-nginx-config
+  container_image: nginx:1.25.3
 
 objectives:
-  - Update the ConfigMap `ingress-nginx-config`.
-  - Set `ssl-session-timeout` to a valid non-zero nginx duration.
+  - Update ConfigMap `ingress-nginx-config`
+  - Set `ssl-session-timeout` to a valid non-zero nginx duration
+  - Ensure ingress controller continues serving HTTP 200 responses
+  - Do NOT delete or recreate the Deployment
+  - Preserve Deployment UID
+  - Preserve container image
+  - Preserve memory limit configuration
 
 constraints:
-  - Do NOT delete or recreate the Deployment.
-  - The Deployment UID must remain unchanged.
-  - The container image must remain `nginx:1.25.3`.
-  - The memory limit must remain exactly `128Mi`.
+  - Deployment UID must remain unchanged
+  - Container image must remain `nginx:1.25.3`
+  - Memory limit must remain `128Mi`
+  - Container restart count must remain 0 (no crash loops introduced)
+  - Do not introduce additional containers
+  - Do not modify Deployment name or namespace
 
 success_criteria:
-  - Deployment becomes Ready.
-  - nginx serves HTTP 200 responses.
-  - Container restart count remains stable.
-  - `ssl-session-timeout` is a valid non-zero nginx duration.
+  - ConfigMap `ssl-session-timeout` is set to a valid non-zero nginx duration
+  - Deployment becomes Ready
+  - nginx serves HTTP 200 responses
+  - Container restart count remains 0
+  - Deployment UID remains unchanged
+  - Container image remains `nginx:1.25.3`
+  - Memory limit remains `128Mi`
 
 notes: |
-  Valid nginx duration examples include:
+  Valid nginx duration examples:
 
-      10s
-      5m
-      1h
-      1d
-
-  Format:
-
-      <positive_integer><unit>
+      30s   (30 seconds)
+      5m    (5 minutes)
+      1h    (1 hour)
+      2d    (2 days)
+      1w    (1 week)
+      1M    (1 month)
+      1y    (1 year)
 
   Supported units:
       s = seconds
@@ -59,3 +73,6 @@ notes: |
       w = weeks
       M = months
       y = years
+
+  You may restart pods if required for configuration reload,
+  but the Deployment object itself must not be recreated.
