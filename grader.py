@@ -17,8 +17,6 @@ Validates:
 import subprocess
 import time
 import re
-from typing import Dict
-from apex_arena.grading import GradeResult
 
 
 # ------------------------------------------------------------
@@ -27,11 +25,8 @@ from apex_arena.grading import GradeResult
 
 def run(cmd: str) -> str:
     """
-    Execute a shell command safely.
-
-    Returns stdout output.
+    Execute shell command safely and return stdout.
     Returns empty string if command fails.
-    Used to query live Kubernetes state.
     """
     try:
         return subprocess.check_output(
@@ -43,10 +38,7 @@ def run(cmd: str) -> str:
 
 def wait_until(fn, timeout=300, interval=5):
     """
-    Retry helper for handling Kubernetes eventual consistency.
-
-    Repeatedly evaluates a condition function until it
-    returns True or timeout is reached.
+    Retry helper for Kubernetes eventual consistency.
     """
     start = time.time()
     while time.time() - start < timeout:
@@ -58,9 +50,7 @@ def wait_until(fn, timeout=300, interval=5):
 
 def get_pod() -> str:
     """
-    Fetch the current ingress-controller pod name.
-
-    Returns empty string if no pod found.
+    Fetch current ingress-controller pod.
     """
     return run(
         "kubectl -n ingress-system get pods "
@@ -73,23 +63,22 @@ def get_pod() -> str:
 # Main grading logic
 # ------------------------------------------------------------
 
-def grade(task_dir=None) -> GradeResult:
+def grade(task_dir=None):
     """
     Main grading entrypoint.
 
-    Ensures that the TLS session timeout was corrected
-    without recreating the Deployment or altering its
-    runtime configuration.
+    Ensures TLS timeout fix applied without altering
+    deployment identity or runtime stability.
     """
 
-    subscores: Dict[str, bool] = {}
+    subscores = {}
 
     # --------------------------------------------------------
-    # Wait for deployment readiness
+    # Wait for deployment availability
     # --------------------------------------------------------
 
     def deployment_ready():
-        """Check if Deployment reports Available condition."""
+        """Check if deployment reports Available=True."""
         status = run(
             "kubectl -n ingress-system get deploy ingress-controller "
             "-o jsonpath='{.status.conditions[?(@.type==\"Available\")].status}'"
@@ -99,7 +88,7 @@ def grade(task_dir=None) -> GradeResult:
     wait_until(deployment_ready, timeout=120, interval=2)
 
     # --------------------------------------------------------
-    # CHECK 1: Deployment UID preserved
+    # CHECK 1: UID preserved
     # --------------------------------------------------------
 
     current_uid = run(
@@ -107,7 +96,6 @@ def grade(task_dir=None) -> GradeResult:
         "-o jsonpath='{.metadata.uid}'"
     )
 
-    # Hardened UID read (prevents grading bypass)
     original_uid = run(
         "test -f /grader/original_uid && cat /grader/original_uid"
     )
@@ -117,7 +105,7 @@ def grade(task_dir=None) -> GradeResult:
     )
 
     # --------------------------------------------------------
-    # CHECK 2: Memory limit unchanged
+    # CHECK 2: Memory unchanged
     # --------------------------------------------------------
 
     memory_limit = run(
@@ -128,7 +116,7 @@ def grade(task_dir=None) -> GradeResult:
     subscores["memory_limit_unchanged"] = memory_limit == "128Mi"
 
     # --------------------------------------------------------
-    # CHECK 3: Container image unchanged
+    # CHECK 3: Image unchanged
     # --------------------------------------------------------
 
     image = run(
@@ -139,7 +127,7 @@ def grade(task_dir=None) -> GradeResult:
     subscores["image_unchanged"] = image == "nginx:1.25.3"
 
     # --------------------------------------------------------
-    # CHECK 4: ssl-session-timeout valid nginx duration
+    # CHECK 4: Valid nginx duration
     # --------------------------------------------------------
 
     timeout_val = run(
@@ -160,7 +148,7 @@ def grade(task_dir=None) -> GradeResult:
     subscores["deployment_available"] = deployment_ready()
 
     # --------------------------------------------------------
-    # CHECK 6: nginx serves HTTP 200
+    # CHECK 6: HTTP 200
     # --------------------------------------------------------
 
     pod = get_pod()
@@ -193,7 +181,7 @@ def grade(task_dir=None) -> GradeResult:
     # CHECK 7: Restart count stable
     # --------------------------------------------------------
 
-    restart_count = "1"  # default fail-safe
+    restart_count = "1"
 
     if pod:
         restart_count = run(
@@ -204,12 +192,12 @@ def grade(task_dir=None) -> GradeResult:
     subscores["restart_count_zero"] = restart_count == "0"
 
     # --------------------------------------------------------
-    # Final Score
+    # Final score
     # --------------------------------------------------------
 
     score = sum(subscores.values()) / len(subscores)
 
-    return GradeResult(
-        score=score,
-        subscores=subscores,
-    )
+    return {
+        "score": score,
+        "subscores": subscores
+    }
