@@ -1,29 +1,19 @@
 #!/usr/bin/env bash
 #
 # ------------------------------------------------------------
-# Setup Script: Ingress Controller TLS Termination (Broken)
+# Setup Script: Ingress Controller TLS Termination Task
 # ------------------------------------------------------------
 #
-# This script prepares the initial broken Kubernetes environment.
+# Creates:
+#   - Namespace ingress-system
+#   - RBAC for ubuntu-user
+#   - Broken ConfigMap (ssl-session-timeout: "0")
+#   - Service
+#   - Deployment (nginx:1.25.3, 128Mi memory)
 #
-# It performs the following:
+# Saves original Deployment UID for grader validation.
 #
-#   1. Creates namespace: ingress-system
-#   2. Grants ubuntu-user RBAC access in that namespace
-#   3. Creates a ConfigMap containing:
-#        ssl-session-timeout: "0"
-#      (This is intentionally invalid — timeout must be non-zero)
-#   4. Creates a Service exposing nginx on port 80
-#   5. Deploys nginx:1.25.3 with memory limit 128Mi
-#   6. Mounts the ConfigMap as environment variable
-#   7. Waits until the Deployment becomes Ready
-#   8. Stores the original Deployment UID for grading
-#
-# IMPORTANT CONSTRAINTS (enforced by grader):
-#   - Deployment must NOT be recreated
-#   - Memory limit must remain 128Mi
-#   - Image must remain nginx:1.25.3
-#
+# Nebula-safe: does NOT use condition=Available
 # ------------------------------------------------------------
 
 set -euo pipefail
@@ -33,9 +23,9 @@ NS="ingress-system"
 echo "Creating namespace..."
 kubectl get ns "$NS" >/dev/null 2>&1 || kubectl create namespace "$NS"
 
-############################################
-# RBAC for ubuntu-user
-############################################
+############################################################
+# RBAC
+############################################################
 echo "Granting ubuntu-user access..."
 
 kubectl apply -f - <<EOF
@@ -69,9 +59,9 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
 EOF
 
-############################################
+############################################################
 # Broken ConfigMap
-############################################
+############################################################
 echo "Creating broken ConfigMap..."
 
 kubectl apply -n "$NS" -f - <<EOF
@@ -83,9 +73,9 @@ data:
   ssl-session-timeout: "0"
 EOF
 
-############################################
+############################################################
 # Service
-############################################
+############################################################
 echo "Creating service..."
 
 kubectl apply -n "$NS" -f - <<EOF
@@ -101,9 +91,9 @@ spec:
     targetPort: 80
 EOF
 
-############################################
+############################################################
 # Deployment
-############################################
+############################################################
 echo "Creating deployment..."
 
 kubectl apply -n "$NS" -f - <<EOF
@@ -130,30 +120,33 @@ spec:
         resources:
           limits:
             memory: "128Mi"
-        env:
-        - name: SSL_SESSION_TIMEOUT
-          valueFrom:
-            configMapKeyRef:
-              name: ingress-nginx-config
-              key: ssl-session-timeout
 EOF
 
-############################################
-# Wait for Ready
-############################################
-echo "Waiting for deployment readiness..."
+############################################################
+# Nebula-Safe Wait (NO condition=Available)
+############################################################
+echo "Waiting for deployment readyReplicas == 1..."
 
-kubectl wait deployment ingress-controller \
-  -n "$NS" \
-  --for=condition=Available \
-  --timeout=300s
+for i in {1..120}; do
+  READY=$(kubectl get deploy ingress-controller -n "$NS" \
+    -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
 
-############################################
-# Save Deployment UID
-############################################
+  if [[ "$READY" == "1" ]]; then
+    echo "Deployment is ready."
+    break
+  fi
+
+  sleep 2
+done
+
+############################################################
+# Save original UID
+############################################################
+echo "Saving original UID..."
+
 mkdir -p /grader
 
-kubectl get deploy ingress-controller \
+kubectl get deployment ingress-controller \
   -n "$NS" \
   -o jsonpath='{.metadata.uid}' > /grader/original_uid
 
