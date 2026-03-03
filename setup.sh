@@ -2,23 +2,27 @@
 set -e
 
 # ==========================================================
-# Nebula Task Setup
+# Nebula Hard++ Task Setup
 # ----------------------------------------------------------
-# Creates:
+# This setup creates:
 #   - Deployment: ingress-controller
 #   - Service: ingress-controller
 #   - ConfigMap: ingress-nginx-config
 #
-# The nginx configuration contains:
-#     ssl_session_timeout 0m;
+# The nginx config intentionally contains:
+#     ssl_session_timeout 0s;
 #
-# This is intentionally invalid and must be fixed by the agent.
+# NOTE:
+# - 0s is syntactically valid (nginx must start successfully)
+# - BUT it violates the required regex:
+#       ^[1-9][0-9]*(s|m|h|d)$
+# - Therefore the agent must update it to a valid non-zero duration.
 #
 # IMPORTANT:
-# - Deployment UID must remain unchanged.
+# - Deployment UID must remain unchanged
 # - Replicas = 3
 # - maxUnavailable = 0
-# - Memory limit = 128Mi
+# - Memory = 128Mi
 # - Image = nginx:1.25.3
 # ==========================================================
 
@@ -35,7 +39,7 @@ data:
   custom.conf: |
     server {
         listen 8080;
-        ssl_session_timeout 0m;
+        ssl_session_timeout 0s;
         location / {
             return 200 "healthy";
         }
