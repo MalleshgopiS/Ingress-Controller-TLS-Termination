@@ -1,23 +1,20 @@
 #!/bin/bash
-set -e
-
 # ============================================================
 # setup.sh
-# Creates initial broken state for the task
+# Creates initial Kubernetes state (Nebula compatible)
+# DO NOT block on rollout
 # ============================================================
+
+set -e
 
 NAMESPACE="default"
 DEPLOYMENT="ingress-controller"
 CONFIGMAP="ingress-nginx-config"
 
-echo "🔧 Creating ConfigMap with INVALID timeout..."
-
 kubectl create configmap $CONFIGMAP \
   -n $NAMESPACE \
   --from-literal=ssl-session-timeout="0" \
   --dry-run=client -o yaml | kubectl apply -f -
-
-echo "🚀 Creating Deployment..."
 
 cat <<EOF | kubectl apply -f -
 apiVersion: apps/v1
@@ -45,21 +42,7 @@ spec:
             memory: "128Mi"
           requests:
             memory: "128Mi"
-        readinessProbe:
-          httpGet:
-            path: /
-            port: 80
-          initialDelaySeconds: 3
-          periodSeconds: 3
-        livenessProbe:
-          httpGet:
-            path: /
-            port: 80
-          initialDelaySeconds: 5
-          periodSeconds: 5
 EOF
-
-echo "🌐 Creating Service..."
 
 cat <<EOF | kubectl apply -f -
 apiVersion: v1
@@ -71,16 +54,16 @@ spec:
   selector:
     app: ingress-controller
   ports:
-    - port: 80
-      targetPort: 80
+  - port: 80
+    targetPort: 80
 EOF
 
-echo "⏳ Waiting for Deployment rollout..."
+# Create secure grader directory
+mkdir -p /grader
+chmod 700 /grader
 
-kubectl rollout status deployment/$DEPLOYMENT -n $NAMESPACE --timeout=120s
+# Capture original UID immediately (do not wait for availability)
+kubectl get deployment $DEPLOYMENT -n $NAMESPACE \
+  -o jsonpath='{.metadata.uid}' > /grader/original_uid
 
-echo "💾 Saving original Deployment UID..."
-
-kubectl get deployment $DEPLOYMENT -n $NAMESPACE -o jsonpath='{.metadata.uid}' > /grader/original_uid
-
-echo "✅ Setup complete."
+chmod 400 /grader/original_uid

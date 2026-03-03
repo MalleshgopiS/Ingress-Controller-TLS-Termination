@@ -1,15 +1,14 @@
 # ============================================================
 # Dockerfile
-# Ingress Controller TLS Session Timeout Fix Task
 # ============================================================
 
 FROM us-central1-docker.pkg.dev/bespokelabs/nebula-devops-registry/nebula-devops:1.0.0
 
 USER root
 
-RUN apt-get update && apt-get install -y curl jq
-
-WORKDIR /task
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends curl jq && \
+    rm -rf /var/lib/apt/lists/*
 
 COPY setup.sh /setup.sh
 COPY solution.sh /solution.sh
@@ -18,6 +17,7 @@ COPY task.yaml /task.yaml
 
 RUN chmod +x /setup.sh /solution.sh
 
-RUN mkdir -p /grader
+WORKDIR /
 
-ENTRYPOINT ["/bin/bash", "-c", "/setup.sh && tail -f /dev/null"]
+CMD ["/bin/bash"]
+
