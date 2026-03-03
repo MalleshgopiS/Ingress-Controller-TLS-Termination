@@ -5,26 +5,20 @@
 # ------------------------------------------------------------
 #
 # Objective:
-#   Update ssl-session-timeout to a valid non-zero nginx duration.
-#
-# Valid Examples:
-#   10s
-#   5m
-#   1h
-#   1d
+#   Update ssl-session-timeout in the ConfigMap to a
+#   valid non-zero nginx duration.
 #
 # Constraints:
 #   - MUST NOT delete or recreate the Deployment
 #   - MUST preserve memory limit (128Mi)
 #   - MUST preserve container image (nginx:1.25.3)
-#   - MUST preserve Deployment UID
 #
 # Approach:
-#   1. Patch ConfigMap
+#   1. Patch the ConfigMap
 #   2. Delete pod (NOT deployment)
-#   3. Wait for readyReplicas == replicas
+#   3. Wait until readyReplicas == 1
+#   4. Add stabilization sleep
 #
-# Nebula-safe (no condition=Available)
 # ------------------------------------------------------------
 
 set -euo pipefail
@@ -41,7 +35,7 @@ kubectl patch configmap ingress-nginx-config \
 
 echo "Deleting pod to reload configuration..."
 
-kubectl delete pod -n "$NS" -l app=ingress-controller
+kubectl delete pod -n "$NS" -l app=ingress-controller --wait=false
 
 echo "Waiting for deployment readyReplicas == 1..."
 
@@ -57,7 +51,7 @@ for i in {1..120}; do
   sleep 2
 done
 
-echo "Allowing brief stabilization..."
-sleep 15
+echo "Extra stabilization wait..."
+sleep 25
 
 echo "✅ TLS session timeout fixed."
