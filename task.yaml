@@ -1,81 +1,61 @@
-# ============================================================
-# task.yaml
-#
-# Task: Ingress Controller TLS Session Timeout Fix
-#
-# Scenario:
-#   A Deployment named `ingress-controller` exists in
-#   namespace `default`.
-#
-#   A ConfigMap named `ingress-nginx-config` contains:
-#
-#       ssl-session-timeout: "0"
-#
-#   This value is invalid.
-#
-# Objective:
-#   Update the ConfigMap so that:
-#     ssl-session-timeout is a valid, non-zero nginx duration
-#     (examples: 10m, 1h, 30s).
-#
-# Constraints:
-#   - Do NOT delete or recreate the Deployment
-#   - Preserve Deployment UID
-#   - Preserve container image: nginx:1.25.3
-#   - Preserve memory limit: 128Mi
-#   - Deployment must remain Available
-#   - Service `ingress-controller` must return HTTP 200
-#
-# Resources:
-#   Namespace: default
-#   Deployment: ingress-controller
-#   Service: ingress-controller
-#   ConfigMap: ingress-nginx-config
-#
-# Difficulty: medium
-# ============================================================
+id: ingress-controller-tls-termination
 
-name: Ingress-Controller-TLS-Termination
-difficulty: medium
+title: Fix TLS Session Timeout Misconfiguration in Ingress Controller
+
+difficulty: hard
 
 description: |
-  The Deployment `ingress-controller` in namespace
-  `default` depends on a ConfigMap named
-  `ingress-nginx-config`.
+  A Kubernetes ingress controller is experiencing instability due to an
+  incorrect TLS session cache configuration.
 
-  The ConfigMap currently contains:
+  The ConfigMap `ingress-nginx-config` contains the setting:
 
       ssl-session-timeout: "0"
 
-  This is not a valid nginx duration.
+  A timeout value of "0" disables session expiration, allowing TLS sessions
+  to accumulate indefinitely and causing memory growth over time.
 
-instructions: |
-  Update the ConfigMap so that:
+  Your task is to correct this configuration safely without disrupting
+  the existing Deployment.
 
-  - `ssl-session-timeout` is set to a valid,
-    non-zero nginx duration (for example: 10m, 1h, 30s).
+environment:
+  namespace: ingress-system
+  deployment: ingress-controller
+  configmap: ingress-nginx-config
 
-  Do NOT:
-  - Delete or recreate the Deployment.
-  - Change the container image.
-  - Modify memory limits.
+objectives:
+  - Update the ConfigMap `ingress-nginx-config`.
+  - Set `ssl-session-timeout` to a valid non-zero nginx duration.
 
-  Ensure:
-  - Deployment UID remains unchanged.
-  - Deployment remains Available.
-  - Service continues returning HTTP 200.
+constraints:
+  - Do NOT delete or recreate the Deployment.
+  - The Deployment UID must remain unchanged.
+  - The container image must remain `nginx:1.25.3`.
+  - The memory limit must remain exactly `128Mi`.
 
 success_criteria:
-  - ConfigMap contains valid non-zero nginx duration.
-  - Deployment UID unchanged.
-  - Image remains nginx:1.25.3.
-  - Memory limit remains 128Mi.
-  - Deployment Available.
-  - HTTP 200 response confirmed.
+  - Deployment becomes Ready.
+  - nginx serves HTTP 200 responses.
+  - Container restart count remains stable.
+  - ssl-session-timeout is a valid non-zero nginx duration.
 
-tags:
-  - kubernetes
-  - configmap
-  - deployment
-  - nginx
-  - debugging
+notes: |
+  Valid nginx duration examples include:
+
+      10s
+      5m
+      1h
+      1d
+
+  Format:
+
+      <positive_integer><unit>
+
+  Supported units:
+      s = seconds
+      m = minutes
+      h = hours
+      d = days
+      w = weeks
+      M = months
+      y = years

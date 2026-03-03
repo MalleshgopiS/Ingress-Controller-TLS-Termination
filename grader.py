@@ -1,130 +1,213 @@
-# ============================================================
-# grader.py
-#
-# Validates:
-# 1. Deployment UID preserved
-# 2. Image remains nginx:1.25.3
-# 3. Memory limit remains 128Mi
-# 4. ssl-session-timeout is valid non-zero nginx duration
-# 5. Deployment becomes Available
-# 6. Service returns HTTP 200
-# ============================================================
+#!/usr/bin/env python3
+"""
+Grader for: Ingress Controller TLS Termination
+
+This grader validates:
+
+1. Deployment UID is preserved (no recreation)
+2. Memory limit remains exactly 128Mi
+3. Container image remains nginx:1.25.3
+4. ssl-session-timeout is a valid non-zero nginx duration
+5. Deployment becomes Ready
+6. Nginx serves HTTP 200 responses
+7. Container restart count remains stable
+
+Final score = mean of all 7 binary checks.
+"""
 
 import subprocess
-import re
 import time
-
-NAMESPACE = "default"
-DEPLOYMENT = "ingress-controller"
-CONFIGMAP = "ingress-nginx-config"
+import re
 
 
-class Result:
-    def __init__(self, score=0.0, feedback=""):
+NS = "ingress-system"
+DEPLOY = "ingress-controller"
+CM = "ingress-nginx-config"
+
+
+class GradeResult:
+    """
+    Apex-compatible grading result object.
+
+    Required attributes:
+        score (float)
+        subscores (dict)
+        weights (dict)
+        feedback (str)
+    """
+
+    def __init__(self, score, subscores, weights, feedback=""):
         self.score = score
-        self.subscores = {}
-        self.weights = {}
+        self.subscores = subscores
+        self.weights = weights
         self.feedback = feedback
 
 
 def run(cmd):
-    return subprocess.check_output(cmd, shell=True).decode().strip()
+    """Execute shell command and return output string safely."""
+    try:
+        return subprocess.check_output(
+            cmd, shell=True, stderr=subprocess.DEVNULL
+        ).decode().strip()
+    except Exception:
+        return ""
 
 
-def wait_for_available(timeout_seconds=120):
+def wait_until(fn, timeout=180, interval=5):
+    """Poll condition function until True or timeout."""
     start = time.time()
-    while time.time() - start < timeout_seconds:
-        try:
-            available = run(
-                f"kubectl get deployment {DEPLOYMENT} -n {NAMESPACE} "
-                "-o jsonpath='{.status.availableReplicas}'"
-            ).strip("'")
-
-            if available == "1":
-                return True
-        except Exception:
-            pass
-        time.sleep(2)
+    while time.time() - start < timeout:
+        if fn():
+            return True
+        time.sleep(interval)
     return False
 
 
-def wait_for_http(timeout_seconds=60):
-    pf = subprocess.Popen(
-        f"kubectl port-forward svc/{DEPLOYMENT} 18080:80 -n {NAMESPACE}",
-        shell=True,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+def stabilize():
+    """Initial stabilization delay before running checks."""
+    time.sleep(25)
+
+
+def get_pod():
+    """Return ingress controller pod name."""
+    return run(
+        f"kubectl get pods -n {NS} "
+        f"-l app=ingress-controller "
+        f"-o jsonpath='{{.items[0].metadata.name}}'"
     )
 
-    time.sleep(5)
 
+def grade(task_dir=None):
+    """Run all validation checks and compute final mean score."""
+
+    stabilize()
+
+    subscores = {}
+    weights = {}
+
+    # --------------------------------------------------
+    # 1. Deployment UID preserved
+    # --------------------------------------------------
+    original_uid = run("cat /grader/original_uid")
+    current_uid = run(
+        f"kubectl get deploy {DEPLOY} -n {NS} "
+        "-o jsonpath='{.metadata.uid}'"
+    )
+
+    subscores["uid_preserved"] = (
+        bool(original_uid) and original_uid == current_uid
+    )
+    weights["uid_preserved"] = 1.0
+
+    # --------------------------------------------------
+    # 2. Memory limit unchanged
+    # --------------------------------------------------
+    memory = run(
+        f"kubectl get deploy {DEPLOY} -n {NS} "
+        "-o jsonpath='{.spec.template.spec.containers[0].resources.limits.memory}'"
+    )
+
+    subscores["memory_preserved"] = memory == "128Mi"
+    weights["memory_preserved"] = 1.0
+
+    # --------------------------------------------------
+    # 3. Image unchanged
+    # --------------------------------------------------
+    image = run(
+        f"kubectl get deploy {DEPLOY} -n {NS} "
+        "-o jsonpath='{.spec.template.spec.containers[0].image}'"
+    )
+
+    subscores["image_preserved"] = image == "nginx:1.25.3"
+    weights["image_preserved"] = 1.0
+
+    # --------------------------------------------------
+    # 4. Valid ssl-session-timeout
+    # --------------------------------------------------
+    timeout_value = run(
+        f"kubectl get cm {CM} -n {NS} "
+        "-o jsonpath='{.data.ssl-session-timeout}'"
+    )
+
+    pattern = r"^[1-9][0-9]*(s|m|h|d|w|M|y)$"
+    subscores["valid_timeout"] = (
+        re.match(pattern, timeout_value or "") is not None
+    )
+    weights["valid_timeout"] = 1.0
+
+    # --------------------------------------------------
+    # 5. Deployment Ready
+    # --------------------------------------------------
+    def ready():
+        return run(
+            f"kubectl get deploy {DEPLOY} -n {NS} "
+            "-o jsonpath='{.status.readyReplicas}'"
+        ) == "1"
+
+    subscores["deployment_ready"] = wait_until(ready)
+    weights["deployment_ready"] = 1.0
+
+    # --------------------------------------------------
+    # 6. Nginx serving HTTP 200
+    # --------------------------------------------------
+    nginx_serving = False
     try:
-        start = time.time()
-        while time.time() - start < timeout_seconds:
-            try:
-                code = run(
-                    "curl -s -o /dev/null -w '%{http_code}' "
-                    "http://localhost:18080"
-                )
-                if code == "200":
-                    return True
-            except Exception:
-                pass
-            time.sleep(1)
-        return False
-    finally:
+        pf = subprocess.Popen(
+            f"kubectl port-forward -n {NS} svc/ingress-controller 18080:80",
+            shell=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        time.sleep(5)
+        response = run(
+            "curl -s -o /dev/null -w '%{http_code}' http://localhost:18080"
+        )
         pf.terminate()
+        nginx_serving = response == "200"
+    except Exception:
+        nginx_serving = False
 
+    subscores["nginx_serving"] = nginx_serving
+    weights["nginx_serving"] = 1.0
 
-def grade(task=None):
-    try:
-        # 1️⃣ UID preserved
-        original_uid = open("/grader/original_uid").read().strip()
+    # --------------------------------------------------
+    # 7. Restart count stable
+    # --------------------------------------------------
+    restart_stable = False
+    pod = get_pod()
 
-        current_uid = run(
-            f"kubectl get deployment {DEPLOYMENT} -n {NAMESPACE} "
-            "-o jsonpath='{.metadata.uid}'"
-        ).strip("'")
+    if pod:
+        before = run(
+            f"kubectl get pod {pod} -n {NS} "
+            "-o jsonpath='{.status.containerStatuses[0].restartCount}'"
+        )
+        time.sleep(60)
+        after = run(
+            f"kubectl get pod {pod} -n {NS} "
+            "-o jsonpath='{.status.containerStatuses[0].restartCount}'"
+        )
+        restart_stable = before == after
 
-        if original_uid != current_uid:
-            return Result(0.0, "Deployment UID was modified.")
+    subscores["restart_stable"] = restart_stable
+    weights["restart_stable"] = 1.0
 
-        # 2️⃣ Image preserved
-        image = run(
-            f"kubectl get deployment {DEPLOYMENT} -n {NAMESPACE} "
-            "-o jsonpath='{.spec.template.spec.containers[0].image}'"
-        ).strip("'")
+    # --------------------------------------------------
+    # Final Mean Score (Normalized Total Weight = 1.0)
+    # --------------------------------------------------
 
-        if image != "nginx:1.25.3":
-            return Result(0.0, "Container image was modified.")
+    total_checks = len(subscores)
 
-        # 3️⃣ Memory preserved
-        memory = run(
-            f"kubectl get deployment {DEPLOYMENT} -n {NAMESPACE} "
-            "-o jsonpath='{.spec.template.spec.containers[0].resources.limits.memory}'"
-        ).strip("'")
+    # Normalize weights so total weight = 1.0
+    if total_checks > 0:
+        normalized_weight = 1.0 / total_checks
+        for k in weights:
+            weights[k] = normalized_weight
 
-        if memory != "128Mi":
-            return Result(0.0, "Memory limit was modified.")
+    total_weight = sum(weights.values())
+    earned = sum(weights[k] for k, v in subscores.items() if v)
 
-        # 4️⃣ Timeout valid (FIXED LINE)
-        timeout_value = run(
-            f"kubectl get configmap {CONFIGMAP} -n {NAMESPACE} "
-            "-o jsonpath='{.data.ssl-session-timeout}'"
-        ).strip("'")
+    final_score = earned / total_weight if total_weight else 0.0
 
-        if not re.fullmatch(r"[1-9][0-9]*(s|m|h|d|w|M|y)", timeout_value):
-            return Result(0.0, "Invalid ssl-session-timeout value.")
+    feedback = f"{sum(1 for v in subscores.values() if v)}/{total_checks} checks passed."
 
-        # 5️⃣ Deployment available
-        if not wait_for_available():
-            return Result(0.0, "Deployment did not become available.")
-
-        # 6️⃣ HTTP check
-        if not wait_for_http():
-            return Result(0.0, "Service did not return HTTP 200.")
-
-        return Result(1.0, "All checks passed successfully.")
-
-    except Exception as e:
-        return Result(0.0, f"Grader exception: {str(e)}")
+    return GradeResult(final_score, subscores, weights, feedback)
