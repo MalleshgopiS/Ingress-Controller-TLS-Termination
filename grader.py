@@ -2,20 +2,36 @@
 """
 Grader for: Ingress Controller TLS Termination
 
-This grader validates:
+This grader validates that the candidate correctly fixes the TLS session
+timeout misconfiguration while preserving the integrity of the Deployment.
 
-1. Deployment UID is preserved (no recreation).
-2. Memory limit remains exactly 128Mi.
-3. Container image remains nginx:1.25.3.
-4. ssl-session-timeout is a valid non-zero nginx duration.
-5. Deployment becomes Ready (readyReplicas == 1).
-6. Nginx serves HTTP 200 responses.
-7. Container restart count remains stable.
+The following checks are performed:
 
-A valid nginx duration must match:
-    ^[1-9][0-9]*(s|m|h|d|w|M|y)$
+1. Deployment UID is preserved
+   - Ensures the Deployment was not deleted or recreated.
 
-Final score = mean of all 7 binary checks.
+2. Memory limit remains exactly 128Mi
+   - Ensures resource constraints were not modified.
+
+3. Container image remains nginx:1.25.3
+   - Ensures the base image was not changed.
+
+4. ssl-session-timeout is a valid non-zero nginx duration
+   - Must match: ^[1-9][0-9]*(s|m|h|d|w|M|y)$
+
+5. Deployment becomes Ready
+   - readyReplicas == 1
+
+6. Nginx serves HTTP 200 responses
+   - Verified via port-forward and curl
+
+7. Container restart count remains stable
+   - Ensures no crash loops after the fix
+
+Final Score:
+    Mean of all 7 binary checks (0.0 to 1.0)
+
+Full Score (1.0) requires all checks to pass.
 """
 
 import subprocess
@@ -47,7 +63,6 @@ def run(cmd):
 def wait_until(fn, timeout=300, interval=5):
     """
     Wait up to 5 minutes for Kubernetes readiness.
-    This is justified due to Nebula snapshot + cold container restart timing.
     """
     start = time.time()
     while time.time() - start < timeout:
@@ -59,7 +74,7 @@ def wait_until(fn, timeout=300, interval=5):
 
 def nginx_check():
     """
-    Port-forward and verify nginx returns HTTP 200.
+    Port-forward service and verify nginx returns HTTP 200.
     Retry for up to 60 seconds to handle slow container warmup.
     """
     pf = subprocess.Popen(
@@ -85,7 +100,8 @@ def nginx_check():
 
 def grade(task_dir=None):
 
-    time.sleep(25)  # Initial stabilization for Nebula
+    # Initial stabilization for Nebula snapshot environments
+    time.sleep(25)
 
     subscores = {}
     weights = {}
@@ -165,7 +181,9 @@ def grade(task_dir=None):
     weights["restart_stable"] = 1
 
     total = len(subscores)
-    score = sum(1 for v in subscores.values() if v) / total
+    passed = sum(1 for v in subscores.values() if v)
+    score = passed / total
 
-    return GradeResult(score, subscores, weights,
-        f"{sum(subscores.values())}/{total} checks passed.")
+    feedback = f"{passed}/{total} checks passed."
+
+    return GradeResult(score, subscores, weights, feedback)
