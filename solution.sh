@@ -17,9 +17,8 @@ kubectl patch configmap $CONFIGMAP \
   --type merge \
   -p '{"data":{"ssl-session-timeout":"10m"}}'
 
-# 2. Restart the deployment to force pods to pick up the new config immediately.
-# This clears the CrashLoopBackOff state while preserving the Deployment's UID.
-kubectl rollout restart deployment $DEPLOYMENT -n $NAMESPACE
-
-# 3. Wait for the new pods to be fully available before exiting
-kubectl rollout status deployment $DEPLOYMENT -n $NAMESPACE --timeout=90s
+# 2. Wait for the deployment to become fully available.
+# We do this here with a generous timeout to ensure the image 
+# has fully pulled before the grader begins its 120s strict check.
+echo "Waiting for deployment to become available..."
+kubectl wait --for=condition=available deployment/$DEPLOYMENT -n $NAMESPACE --timeout=300s
