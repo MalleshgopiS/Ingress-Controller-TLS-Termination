@@ -1,19 +1,21 @@
 #!/usr/bin/env bash
 #
 # ------------------------------------------------------------
-# Setup Script: Ingress Controller TLS Termination Task
+# Setup Script: Ingress Controller TLS Termination
 # ------------------------------------------------------------
 #
 # Creates:
-#   - Namespace ingress-system
+#   - Namespace: ingress-system
 #   - RBAC for ubuntu-user
 #   - Broken ConfigMap (ssl-session-timeout: "0")
 #   - Service
-#   - Deployment (nginx:1.25.3, 128Mi memory)
+#   - Deployment (nginx:1.25.3, memory=128Mi)
 #
 # Saves original Deployment UID for grader validation.
 #
-# Nebula-safe: does NOT use condition=Available
+# IMPORTANT:
+#   - Nebula-safe (no condition=Available usage)
+#   - Uses readyReplicas loop
 # ------------------------------------------------------------
 
 set -euo pipefail
@@ -123,7 +125,7 @@ spec:
 EOF
 
 ############################################################
-# Nebula-Safe Wait (NO condition=Available)
+# Nebula-Safe Readiness Wait
 ############################################################
 echo "Waiting for deployment readyReplicas == 1..."
 

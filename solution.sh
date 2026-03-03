@@ -4,13 +4,27 @@
 # Solution Script: Fix TLS Session Timeout
 # ------------------------------------------------------------
 #
-# Updates ssl-session-timeout to valid non-zero duration.
-# Preserves:
-#   - Deployment UID
-#   - Memory limit (128Mi)
-#   - Image (nginx:1.25.3)
+# Objective:
+#   Update ssl-session-timeout to a valid non-zero nginx duration.
 #
-# Nebula-safe (no condition=Available usage)
+# Valid Examples:
+#   10s
+#   5m
+#   1h
+#   1d
+#
+# Constraints:
+#   - MUST NOT delete or recreate the Deployment
+#   - MUST preserve memory limit (128Mi)
+#   - MUST preserve container image (nginx:1.25.3)
+#   - MUST preserve Deployment UID
+#
+# Approach:
+#   1. Patch ConfigMap
+#   2. Delete pod (NOT deployment)
+#   3. Wait for readyReplicas == replicas
+#
+# Nebula-safe (no condition=Available)
 # ------------------------------------------------------------
 
 set -euo pipefail
@@ -43,7 +57,7 @@ for i in {1..120}; do
   sleep 2
 done
 
-echo "Extra stabilization..."
+echo "Allowing brief stabilization..."
 sleep 15
 
 echo "✅ TLS session timeout fixed."
