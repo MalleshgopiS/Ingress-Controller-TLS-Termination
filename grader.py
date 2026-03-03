@@ -1,12 +1,22 @@
 # ============================================================
 # grader.py
-# Apex-Compatible Final Version
+#
+# Validates:
+# 1. Deployment UID preserved
+# 2. Image remains nginx:1.25.3
+# 3. Memory limit remains 128Mi
+# 4. ssl-session-timeout is valid non-zero nginx duration
+# 5. Deployment becomes Available
+# 6. Service returns HTTP 200
+#
+# Returns:
+#   result.score
+#   result.subscores
 # ============================================================
 
 import subprocess
 import re
 import time
-
 
 NAMESPACE = "default"
 DEPLOYMENT = "ingress-controller"
@@ -16,6 +26,7 @@ CONFIGMAP = "ingress-nginx-config"
 class Result:
     def __init__(self, score):
         self.score = score
+        self.subscores = {}   # Required by Apex
 
 
 def run(cmd):
@@ -72,7 +83,6 @@ def wait_for_http(timeout_seconds=60):
         pf.terminate()
 
 
-# MUST accept 1 argument (Apex passes task)
 def grade(task=None):
 
     try:
@@ -105,7 +115,7 @@ def grade(task=None):
         if memory != "128Mi":
             return Result(0.0)
 
-        # 4️⃣ Timeout valid
+        # 4️⃣ Valid timeout
         timeout_value = run(
             f"kubectl get configmap {CONFIGMAP} -n {NAMESPACE} "
             "-o jsonpath='{{.data.ssl-session-timeout}}'"
@@ -118,7 +128,7 @@ def grade(task=None):
         if not wait_for_available():
             return Result(0.0)
 
-        # 6️⃣ HTTP check
+        # 6️⃣ HTTP returns 200
         if not wait_for_http():
             return Result(0.0)
 
