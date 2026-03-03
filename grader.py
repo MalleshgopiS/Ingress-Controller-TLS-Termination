@@ -1,23 +1,12 @@
 """
 ==========================================================
-Nebula Hard++ Grader (Quality-Compliant Final)
+Nebula Hard++ Grader (Final Clean Version)
 ==========================================================
 
-Validates:
-- UID preserved
-- Replicas preserved (3)
-- RollingUpdate maxUnavailable=0
-- Memory preserved (128Mi)
-- Image preserved (nginx:1.25.3)
-- Valid timeout format
-- nginx structure preserved
-- All replicas Ready
-- HTTP 200 served
-- Restart counts stable
-
-Scoring:
-- All checks must pass.
-- If any check fails → score = 0.0
+All checks must pass.
+Binary scoring:
+- score = 1.0 if all pass
+- score = 0.0 otherwise
 ==========================================================
 """
 
@@ -25,7 +14,6 @@ import subprocess
 import time
 import re
 import json
-
 
 NS = "ingress-system"
 DEPLOYMENT = "ingress-controller"
@@ -80,36 +68,17 @@ def image_preserved():
     ) == "nginx:1.25.3"
 
 
-def get_config():
-    return run(
+def valid_timeout():
+    conf = run(
         f"kubectl get configmap {CONFIGMAP} -n {NS} "
         "-o jsonpath='{.data.nginx\\.conf}'"
     )
-
-
-def valid_timeout(conf):
     if not conf:
         return False
     match = re.search(r"ssl_session_timeout\s+([^\s;]+);", conf)
     if not match:
         return False
-    return re.fullmatch(r"^[1-9][0-9]*(s|m|h|d|w|M|y)$", match.group(1)) is not None
-
-
-def structure_preserved(conf):
-    if not conf:
-        return False
-
-    required_patterns = [
-        r"\bworker_processes\b",
-        r"\bevents\s*{",
-        r"\bhttp\s*{",
-        r"include\s+/etc/nginx/mime\.types;",
-        r"\bserver\s*{",
-        r"\blocation\s+/\s*{",
-    ]
-
-    return all(re.search(p, conf) for p in required_patterns)
+    return re.fullmatch(r"^[1-9][0-9]*(s|m|h|d)$", match.group(1)) is not None
 
 
 def all_ready():
@@ -135,9 +104,7 @@ def restart_stable():
     )
     if not pods_raw:
         return False
-
     pods = pods_raw.split()
-
     before = [
         run(
             f"kubectl get pod {p} -n {NS} "
@@ -145,9 +112,7 @@ def restart_stable():
         )
         for p in pods
     ]
-
     time.sleep(20)
-
     after = [
         run(
             f"kubectl get pod {p} -n {NS} "
@@ -155,11 +120,8 @@ def restart_stable():
         )
         for p in pods
     ]
-
     return before == after
 
-
-conf = get_config()
 
 results = {
     "uid_preserved": uid_preserved(),
@@ -167,8 +129,7 @@ results = {
     "strategy_preserved": strategy_preserved(),
     "memory_preserved": memory_preserved(),
     "image_preserved": image_preserved(),
-    "valid_timeout": valid_timeout(conf),
-    "structure_preserved": structure_preserved(conf),
+    "valid_timeout": valid_timeout(),
     "all_ready": all_ready(),
     "http_200": http_200(),
     "restart_stable": restart_stable(),

@@ -3,32 +3,55 @@ title: Ingress Controller TLS Termination (Hard++)
 difficulty: hard
 
 description: |
+  You are operating inside a Kubernetes cluster.
+
   Namespace:
     ingress-system
 
-  Resources Created:
+  Resources already exist:
     - Deployment: ingress-controller
     - ConfigMap: ingress-nginx-config
     - Service: ingress-controller
 
-  The nginx configuration inside the ConfigMap currently contains:
+  The Deployment runs nginx:1.25.3 with 3 replicas.
+  The Deployment uses a RollingUpdate strategy with:
+      maxUnavailable: 0
+
+  The nginx configuration stored in the ConfigMap currently contains:
 
       ssl_session_timeout 0;
 
-  This value is invalid and must be changed to a valid,
-  non-zero nginx duration.
+  This value is INVALID and must be fixed.
 
-  Valid formats include:
+  ----------------------------------------------------------
+  🎯 Your Objective
+  ----------------------------------------------------------
+
+  Update the ConfigMap so that:
+
+      ssl_session_timeout
+
+  is changed to a valid, non-zero nginx duration.
+
+  ----------------------------------------------------------
+  ✅ Valid Duration Format
+  ----------------------------------------------------------
+
+  Examples:
       10m
       30s
       1h
       2d
 
   Valid format regex:
-      ^[1-9][0-9]*(s|m|h|d|w|M|y)$
+      ^[1-9][0-9]*(s|m|h|d)$
 
-  Constraints:
+  ----------------------------------------------------------
+  ⚠ Constraints
+  ----------------------------------------------------------
+
   - Do NOT delete or recreate the Deployment
+  - Deployment UID must remain unchanged
   - Replicas must remain 3
   - Do NOT scale replicas
   - Do NOT modify image (nginx:1.25.3)
@@ -36,9 +59,12 @@ description: |
   - Do NOT change RollingUpdate strategy
   - Do NOT cause downtime
   - Do NOT overwrite the entire nginx configuration
-  - Only update the ssl_session_timeout value
+  - ONLY update the ssl_session_timeout value
 
-success_criteria:
+  ----------------------------------------------------------
+  🏁 Success Criteria
+  ----------------------------------------------------------
+
   - Deployment UID unchanged
   - 3 replicas Ready
   - RollingUpdate maxUnavailable remains 0

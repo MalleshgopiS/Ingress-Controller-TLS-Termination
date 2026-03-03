@@ -1,51 +1,27 @@
 #!/bin/bash
 # ==========================================================
-# Hard++ Setup Script (Nebula Stable Version)
+# Hard++ Setup Script
 # ==========================================================
 #
-# Environment: Nebula k3s (snapshot mode)
-#
-# Creates:
-# - Namespace: ingress-system
-# - RBAC role for ubuntu user
-# - ConfigMap: ingress-nginx-config
-# - Service: ingress-controller
-# - Deployment: ingress-controller
-#
-# Deployment Properties:
-#   - replicas: 3
-#   - strategy: RollingUpdate (maxUnavailable=0)
-#   - image: nginx:1.25.3
-#   - memory limit: 128Mi
-#
-# nginx misconfiguration:
-#   ssl_session_timeout 0;
+# Creates initial broken state:
+# - Namespace ingress-system
+# - ConfigMap with invalid ssl_session_timeout 0;
+# - Deployment with 3 replicas (nginx:1.25.3)
+# - Service exposing nginx
 #
 # Saves original Deployment UID to:
 #   /grader/original_uid
 #
+# nginx returns HTTP 200 for validation.
 # ==========================================================
 
 set -e
 
 NS="ingress-system"
 
-echo "Creating namespace..."
 kubectl create namespace $NS 2>/dev/null || true
 
-echo "Creating RBAC role..."
-kubectl create role ubuntu-user-admin \
-  --verb="*" \
-  --resource="*" \
-  -n $NS 2>/dev/null || true
-
-kubectl create rolebinding ubuntu-user-admin-binding \
-  --role=ubuntu-user-admin \
-  --user=ubuntu \
-  -n $NS 2>/dev/null || true
-
-echo "Creating ConfigMap with stable nginx configuration..."
-
+# Create ConfigMap with INVALID timeout
 cat <<EOF | kubectl apply -f -
 apiVersion: v1
 kind: ConfigMap
@@ -55,25 +31,14 @@ metadata:
 data:
   nginx.conf: |
     worker_processes auto;
-    error_log  /var/log/nginx/error.log notice;
-    pid        /var/run/nginx.pid;
-
     events {
         worker_connections 1024;
     }
-
     http {
-        include       /etc/nginx/mime.types;
-        default_type  application/octet-stream;
-
-        sendfile        on;
-        keepalive_timeout  65;
-
+        include /etc/nginx/mime.types;
         server {
             listen 80;
-
             ssl_session_timeout 0;
-
             location / {
                 return 200 "OK";
             }
@@ -81,8 +46,7 @@ data:
     }
 EOF
 
-echo "Creating Service..."
-
+# Create Service
 cat <<EOF | kubectl apply -f -
 apiVersion: v1
 kind: Service
@@ -97,8 +61,7 @@ spec:
       targetPort: 80
 EOF
 
-echo "Creating Deployment..."
-
+# Create Deployment
 cat <<EOF | kubectl apply -f -
 apiVersion: apps/v1
 kind: Deployment
@@ -138,16 +101,11 @@ spec:
             name: ingress-nginx-config
 EOF
 
-echo "Waiting for Deployment rollout..."
+kubectl rollout status deployment/ingress-controller -n $NS --timeout=240s
 
-kubectl rollout status deployment/ingress-controller \
-  -n $NS \
-  --timeout=240s
-
-echo "Saving original Deployment UID..."
-
-kubectl get deployment ingress-controller \
-  -n $NS \
+# Store original UID for grader validation
+mkdir -p /grader
+kubectl get deployment ingress-controller -n $NS \
   -o jsonpath='{.metadata.uid}' > /grader/original_uid
 
-echo "✅ Hard++ Setup complete."
+echo "Setup complete."
