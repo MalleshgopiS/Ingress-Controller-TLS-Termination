@@ -1,26 +1,21 @@
 # ============================================================
 # grader.py
-#
-# Validates:
-# 1. Deployment UID preserved
-# 2. Image remains nginx:1.25.3
-# 3. Memory limit remains 128Mi
-# 4. ssl-session-timeout is valid non-zero nginx duration
-# 5. Deployment becomes Available
-# 6. Service returns HTTP 200
-#
-# Returns:
-#   {"score": 1.0}
-#   {"score": 0.0}
+# Apex-Compatible Final Version
 # ============================================================
 
 import subprocess
 import re
 import time
 
+
 NAMESPACE = "default"
 DEPLOYMENT = "ingress-controller"
 CONFIGMAP = "ingress-nginx-config"
+
+
+class Result:
+    def __init__(self, score):
+        self.score = score
 
 
 def run(cmd):
@@ -77,13 +72,11 @@ def wait_for_http(timeout_seconds=60):
         pf.terminate()
 
 
-# 🔥 IMPORTANT: Must accept 1 positional argument in Apex
+# MUST accept 1 argument (Apex passes task)
 def grade(task=None):
 
     try:
-        # --------------------------------------------------------
         # 1️⃣ UID preserved
-        # --------------------------------------------------------
         original_uid = open("/grader/original_uid").read().strip()
 
         current_uid = run(
@@ -92,54 +85,44 @@ def grade(task=None):
         ).strip("'")
 
         if original_uid != current_uid:
-            return {"score": 0.0}
+            return Result(0.0)
 
-        # --------------------------------------------------------
         # 2️⃣ Image preserved
-        # --------------------------------------------------------
         image = run(
             f"kubectl get deployment {DEPLOYMENT} -n {NAMESPACE} "
             "-o jsonpath='{.spec.template.spec.containers[0].image}'"
         ).strip("'")
 
         if image != "nginx:1.25.3":
-            return {"score": 0.0}
+            return Result(0.0)
 
-        # --------------------------------------------------------
         # 3️⃣ Memory preserved
-        # --------------------------------------------------------
         memory = run(
             f"kubectl get deployment {DEPLOYMENT} -n {NAMESPACE} "
             "-o jsonpath='{.spec.template.spec.containers[0].resources.limits.memory}'"
         ).strip("'")
 
         if memory != "128Mi":
-            return {"score": 0.0}
+            return Result(0.0)
 
-        # --------------------------------------------------------
-        # 4️⃣ Timeout format valid
-        # --------------------------------------------------------
+        # 4️⃣ Timeout valid
         timeout_value = run(
             f"kubectl get configmap {CONFIGMAP} -n {NAMESPACE} "
             "-o jsonpath='{{.data.ssl-session-timeout}}'"
         ).strip("'")
 
         if not re.fullmatch(r"[1-9][0-9]*(s|m|h|d|w|M|y)", timeout_value):
-            return {"score": 0.0}
+            return Result(0.0)
 
-        # --------------------------------------------------------
-        # 5️⃣ Wait for availability
-        # --------------------------------------------------------
+        # 5️⃣ Deployment available
         if not wait_for_available():
-            return {"score": 0.0}
+            return Result(0.0)
 
-        # --------------------------------------------------------
         # 6️⃣ HTTP check
-        # --------------------------------------------------------
         if not wait_for_http():
-            return {"score": 0.0}
+            return Result(0.0)
 
-        return {"score": 1.0}
+        return Result(1.0)
 
     except Exception:
-        return {"score": 0.0}
+        return Result(0.0)
