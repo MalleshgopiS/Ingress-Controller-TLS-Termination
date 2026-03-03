@@ -3,27 +3,45 @@ title: Ingress Controller TLS Termination (Hard++)
 difficulty: hard
 
 description: |
-  The ingress controller is misconfigured with:
+  Namespace:
+    ingress-system
+
+  Resources Created:
+    - Deployment: ingress-controller
+    - ConfigMap: ingress-nginx-config
+    - Service: ingress-controller
+
+  The nginx configuration inside the ConfigMap currently contains:
 
       ssl_session_timeout 0;
 
-  The Deployment runs 3 replicas using a strict RollingUpdate strategy.
+  This value is invalid and must be changed to a valid,
+  non-zero nginx duration.
 
-  Your task:
-  Fix the timeout configuration using a valid non-zero nginx duration
-  (e.g., 10m) while preserving availability and deployment integrity.
+  Valid formats include:
+      10m
+      30s
+      1h
+      2d
+
+  Valid format regex:
+      ^[1-9][0-9]*(s|m|h|d|w|M|y)$
 
   Constraints:
   - Do NOT delete or recreate the Deployment
+  - Replicas must remain 3
   - Do NOT scale replicas
   - Do NOT modify image (nginx:1.25.3)
   - Do NOT modify memory limit (128Mi)
   - Do NOT change RollingUpdate strategy
   - Do NOT cause downtime
+  - Do NOT overwrite the entire nginx configuration
+  - Only update the ssl_session_timeout value
 
-  Success Criteria:
-  - 3 replicas remain Ready
-  - HTTP 200 continuously served
-  - UID preserved
+success_criteria:
+  - Deployment UID unchanged
+  - 3 replicas Ready
+  - RollingUpdate maxUnavailable remains 0
+  - HTTP 200 served from Service
   - Restart counts stable
-  - Strategy unchanged
+  - Valid timeout format applied

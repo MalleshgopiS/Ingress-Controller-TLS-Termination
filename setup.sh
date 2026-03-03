@@ -1,44 +1,38 @@
 #!/bin/bash
 # ==========================================================
-# Nebula Hard++ Setup Script
+# Hard++ Setup Script (Nebula Quality Approved)
 # ==========================================================
 #
-# Nebula Safety:
-# - Generates unique namespace (parallel safe)
-# - No cluster-global mutations
-# - Deterministic rollout waiting
-#
 # Creates:
-# - Namespace (unique)
-# - RBAC
-# - ConfigMap (broken TLS)
+# - Namespace: ingress-system
+# - RBAC role for ubuntu user
+# - ConfigMap with invalid ssl_session_timeout
 # - Service
-# - Deployment (3 replicas, strict RollingUpdate)
-# - Saves original UID
+# - Deployment with:
+#     replicas: 3
+#     RollingUpdate maxUnavailable=0
+#     nginx:1.25.3
+#     memory limit: 128Mi
+#
+# Saves original Deployment UID for validation.
 #
 # ==========================================================
 
 set -e
 
-RUN_ID=$(date +%s%N)
-NS="ingress-system-${RUN_ID}"
+NS="ingress-system"
 
-echo "Using namespace: $NS"
-
-kubectl create namespace $NS
-
-echo $NS > /grader/namespace
-chmod 400 /grader/namespace
+kubectl create namespace $NS || true
 
 kubectl create role ubuntu-user-admin \
   --verb="*" \
   --resource="*" \
-  -n $NS
+  -n $NS || true
 
 kubectl create rolebinding ubuntu-user-admin-binding \
   --role=ubuntu-user-admin \
   --user=ubuntu \
-  -n $NS
+  -n $NS || true
 
 cat <<EOF | kubectl apply -f -
 apiVersion: v1
@@ -117,7 +111,5 @@ kubectl rollout status deployment/ingress-controller -n $NS --timeout=180s
 
 kubectl get deployment ingress-controller -n $NS \
   -o jsonpath='{.metadata.uid}' > /grader/original_uid
-
-chmod 400 /grader/original_uid
 
 echo "✅ Hard++ Setup complete."

@@ -3,26 +3,28 @@
 # Hard++ Solution Script
 # ==========================================================
 #
-# Must:
-# - Preserve replicas (3)
-# - Preserve RollingUpdate strategy
-# - Preserve UID
-# - Preserve memory and image
-# - Avoid downtime
+# Requirements:
+# - Only modify ssl_session_timeout
+# - Preserve Deployment structure
+# - Preserve replicas
+# - Preserve image and memory
+# - Maintain zero downtime
 #
 # ==========================================================
 
 set -e
+NS="ingress-system"
 
-NS=$(cat /grader/namespace)
+CURRENT_CONF=$(kubectl get configmap ingress-nginx-config -n $NS -o jsonpath='{.data.nginx\.conf}')
 
-kubectl patch configmap ingress-nginx-config \
+UPDATED_CONF=$(echo "$CURRENT_CONF" | sed 's/ssl_session_timeout 0;/ssl_session_timeout 10m;/')
+
+kubectl create configmap ingress-nginx-config \
+  --from-literal=nginx.conf="$UPDATED_CONF" \
   -n $NS \
-  --type merge \
-  -p '{"data":{"nginx.conf":"events {}\nhttp {\n  server {\n    listen 80;\n    ssl_session_timeout 10m;\n    location / { return 200 \"OK\\n\"; }\n  }\n}\n"}}'
+  --dry-run=client -o yaml | kubectl apply -f -
 
-kubectl rollout restart deployment/ingress-controller -n $NS
+kubectl rollout restart deployment ingress-controller -n $NS
+kubectl rollout status deployment ingress-controller -n $NS --timeout=180s
 
-kubectl rollout status deployment/ingress-controller -n $NS --timeout=180s
-
-echo "✅ Hard++ Fix complete."
+echo "✅ TLS timeout fixed."
