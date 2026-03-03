@@ -1,80 +1,61 @@
-id: ingress-controller-tls-termination-hardpp
-title: Fix Invalid TLS Session Timeout in Ingress Controller
+id: ingress-controller-tls-termination
+
+title: Fix TLS Session Timeout Misconfiguration in Ingress Controller
+
 difficulty: hard
-category: kubernetes
-tags:
-  - kubernetes
-  - configmap
-  - deployment
-  - nginx
-  - rolling-update
 
 description: |
-  You are working in a Kubernetes cluster that contains an Ingress Controller
-  running nginx. The controller uses a ConfigMap named:
+  A Kubernetes ingress controller is experiencing instability due to an
+  incorrect TLS session cache configuration.
 
-      ingress-nginx-config
+  The ConfigMap `ingress-nginx-config` contains the setting:
 
-  The ConfigMap provides a full nginx configuration file mounted as:
+      ssl-session-timeout: "0"
 
-      /etc/nginx/nginx.conf
+  A timeout value of "0" disables session expiration, allowing TLS sessions
+  to accumulate indefinitely and causing memory growth over time.
 
-  The current configuration contains:
+  Your task is to correct this configuration safely without disrupting
+  the existing Deployment.
 
-      ssl_session_timeout 0s;
+environment:
+  namespace: ingress-system
+  deployment: ingress-controller
+  configmap: ingress-nginx-config
 
-  This value is INVALID because it is zero. A valid value must match:
+objectives:
+  - Update the ConfigMap `ingress-nginx-config`.
+  - Set `ssl-session-timeout` to a valid non-zero nginx duration.
 
-      ^[1-9][0-9]*(s|m|h|d)$
-
-  This means:
-  - It must be a non-zero positive integer
-  - It must end with one of: s, m, h, d
-
-  Examples of valid values:
-      10m
-      5s
-      1h
-      30d
-
-  Your task is to:
-
-  1. Update ONLY the ssl_session_timeout value
-  2. Ensure the new value matches the required format
-  3. Do NOT recreate the Deployment
-  4. Do NOT modify any other nginx configuration
-  5. Do NOT modify replicas, rolling strategy, image, or memory limits
-  6. Ensure the service continues returning HTTP 200
-
-  The Deployment must remain unchanged in the following ways:
-  - replicas must remain 3
-  - strategy must remain RollingUpdate with maxUnavailable=0
-  - container image must remain nginx:1.25.3
-  - memory limit must remain 128Mi
-  - Deployment UID must remain unchanged
-
-  Important:
-
-  The nginx configuration structure must remain intact.
-  The following fragments MUST remain present:
-
-      server {
-      listen 8080;
-      location /
-      return 200 "healthy";
-
-  Only the ssl_session_timeout value may be modified.
-
-  After updating the ConfigMap, ensure the running pods reflect
-  the updated configuration. If necessary, perform a safe rollout
-  without deleting or recreating the Deployment.
+constraints:
+  - Do NOT delete or recreate the Deployment.
+  - The Deployment UID must remain unchanged.
+  - The container image must remain `nginx:1.25.3`.
+  - The memory limit must remain exactly `128Mi`.
 
 success_criteria:
-  - Deployment UID remains unchanged
-  - Replicas remain 3
-  - RollingUpdate maxUnavailable remains 0
-  - Memory limit remains 128Mi
-  - Image remains nginx:1.25.3
-  - ssl_session_timeout matches required regex
-  - nginx configuration structure remains intact
-  - Service returns HTTP 200
+  - Deployment becomes Ready.
+  - nginx serves HTTP 200 responses.
+  - Container restart count remains stable.
+  - ssl-session-timeout is a valid non-zero nginx duration.
+
+notes: |
+  Valid nginx duration examples include:
+
+      10s
+      5m
+      1h
+      1d
+
+  Format:
+
+      <positive_integer><unit>
+
+  Supported units:
+      s = seconds
+      m = minutes
+      h = hours
+      d = days
+      w = weeks
+      M = months
+      y = years

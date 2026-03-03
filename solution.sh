@@ -1,65 +1,52 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -e
 
-# ==========================================================
-# Nebula Hard++ Solution Script
-# Task: ingress-controller-tls-termination-hardpp
-# ----------------------------------------------------------
-# Objective:
-#   Fix invalid ssl_session_timeout value in the
-#   ingress-nginx-config ConfigMap.
-#
-# Requirements:
-#   - Modify ONLY ssl_session_timeout
-#   - New value must match:
-#         ^[1-9][0-9]*(s|m|h|d)$
-#   - Preserve Deployment UID
-#   - Preserve replicas=3
-#   - Preserve maxUnavailable=0
-#   - Preserve memory=128Mi
-#   - Preserve image=nginx:1.25.3
-#   - Ensure Service returns HTTP 200
-#
-# Strategy:
-#   1. Extract nginx.conf from ConfigMap
-#   2. Use regex-safe sed replacement
-#   3. Reapply ConfigMap (without deleting Deployment)
-#   4. Trigger safe rollout via annotation patch
-#   5. Wait for rollout completion
-#
-# IMPORTANT:
-#   Deployment must NOT be deleted or recreated.
-#   UID must remain unchanged.
-# ==========================================================
+NS="ingress-system"
+APP_LABEL="app=ingress-controller"
 
-NS="default"
-CM="ingress-nginx-config"
-DEPLOY="ingress-controller"
+echo "Patching ConfigMap..."
 
-echo "Extracting nginx.conf from ConfigMap..."
-
-kubectl get configmap $CM -n $NS \
-  -o jsonpath='{.data.nginx\.conf}' > /tmp/nginx.conf
-
-echo "Updating ssl_session_timeout..."
-
-# Replace ONLY the timeout value (safe, targeted regex)
-sed -E -i 's/(ssl_session_timeout[[:space:]]+)[^;]+;/\110m;/' /tmp/nginx.conf
-
-echo "Reapplying ConfigMap..."
-
-kubectl create configmap $CM \
-  --from-file=nginx.conf=/tmp/nginx.conf \
+kubectl patch configmap ingress-nginx-config \
   -n $NS \
-  --dry-run=client -o yaml | kubectl apply -f -
+  --type merge \
+  -p '{"data":{"ssl-session-timeout":"10m"}}'
 
-echo "Triggering safe rolling update (without changing UID)..."
+echo "Deleting existing pod to reload configuration..."
 
-kubectl patch deployment $DEPLOY -n $NS \
-  -p "{\"spec\":{\"template\":{\"metadata\":{\"annotations\":{\"reload\":\"$(date +%s)\"}}}}}"
+OLD_POD=$(kubectl get pods -n $NS -l $APP_LABEL \
+  -o jsonpath='{.items[0].metadata.name}')
 
-echo "Waiting for rollout to complete..."
+kubectl delete pod "$OLD_POD" -n $NS --wait=false
 
-kubectl rollout status deployment/$DEPLOY -n $NS --timeout=300s
+echo "Waiting for new pod to be created..."
 
-echo "✅ Solution applied successfully."
+for i in {1..60}; do
+  NEW_POD=$(kubectl get pods -n $NS -l $APP_LABEL \
+    -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+
+  if [[ -n "$NEW_POD" && "$NEW_POD" != "$OLD_POD" ]]; then
+    echo "New pod detected: $NEW_POD"
+    break
+  fi
+
+  sleep 2
+done
+
+echo "Waiting for pod to reach Running phase..."
+
+for i in {1..90}; do
+  STATUS=$(kubectl get pod "$NEW_POD" -n $NS \
+    -o jsonpath='{.status.phase}' 2>/dev/null || true)
+
+  if [[ "$STATUS" == "Running" ]]; then
+    echo "Pod is Running"
+    break
+  fi
+
+  sleep 2
+done
+
+echo "Stabilizing..."
+sleep 20
+
+echo "✅ Fix applied successfully."
