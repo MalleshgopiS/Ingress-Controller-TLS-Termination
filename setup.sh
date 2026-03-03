@@ -1,52 +1,52 @@
 #!/bin/bash
 set -e
 
-NAMESPACE="default"
-DEPLOYMENT="ingress-controller"
-CONFIGMAP="ingress-nginx-config"
-SERVICE="ingress-controller"
+# ==========================================================
+# Nebula Task Setup
+# ----------------------------------------------------------
+# Creates:
+#   - Deployment: ingress-controller
+#   - Service: ingress-controller
+#   - ConfigMap: ingress-nginx-config
+#
+# The nginx configuration contains:
+#     ssl_session_timeout 0m;
+#
+# This is intentionally invalid and must be fixed by the agent.
+#
+# IMPORTANT:
+# - Deployment UID must remain unchanged.
+# - Replicas = 3
+# - maxUnavailable = 0
+# - Memory limit = 128Mi
+# - Image = nginx:1.25.3
+# ==========================================================
 
-echo "Creating ConfigMap..."
+NS="default"
+DEPLOY="ingress-controller"
+CM="ingress-nginx-config"
 
-kubectl apply -n ${NAMESPACE} -f - <<EOF
+kubectl apply -n $NS -f - <<EOF
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: ${CONFIGMAP}
+  name: $CM
 data:
   custom.conf: |
     server {
         listen 8080;
         ssl_session_timeout 0m;
-
         location / {
-            return 200 "OK";
+            return 200 "healthy";
         }
     }
 EOF
 
-echo "Creating Service..."
-
-kubectl apply -n ${NAMESPACE} -f - <<EOF
-apiVersion: v1
-kind: Service
-metadata:
-  name: ${SERVICE}
-spec:
-  selector:
-    app: ${DEPLOYMENT}
-  ports:
-  - port: 80
-    targetPort: 8080
-EOF
-
-echo "Creating Deployment..."
-
-kubectl apply -n ${NAMESPACE} -f - <<EOF
+kubectl apply -n $NS -f - <<EOF
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: ${DEPLOYMENT}
+  name: $DEPLOY
 spec:
   replicas: 3
   strategy:
@@ -55,16 +55,15 @@ spec:
       maxUnavailable: 0
   selector:
     matchLabels:
-      app: ${DEPLOYMENT}
+      app: $DEPLOY
   template:
     metadata:
       labels:
-        app: ${DEPLOYMENT}
+        app: $DEPLOY
     spec:
       containers:
       - name: nginx
         image: nginx:1.25.3
-        imagePullPolicy: IfNotPresent
         resources:
           limits:
             memory: 128Mi
@@ -77,20 +76,29 @@ spec:
           initialDelaySeconds: 2
           periodSeconds: 3
         volumeMounts:
-        - name: nginx-config
+        - name: config
           mountPath: /etc/nginx/conf.d/custom.conf
           subPath: custom.conf
       volumes:
-      - name: nginx-config
+      - name: config
         configMap:
-          name: ${CONFIGMAP}
+          name: $CM
 EOF
 
-echo "Waiting for rollout..."
+kubectl apply -n $NS -f - <<EOF
+apiVersion: v1
+kind: Service
+metadata:
+  name: $DEPLOY
+spec:
+  selector:
+    app: $DEPLOY
+  ports:
+  - port: 80
+    targetPort: 8080
+EOF
 
-kubectl rollout status deployment/${DEPLOYMENT} -n ${NAMESPACE} --timeout=300s
+kubectl rollout status deployment/$DEPLOY -n $NS --timeout=300s
 
-kubectl get deployment ${DEPLOYMENT} -n ${NAMESPACE} \
+kubectl get deployment $DEPLOY -n $NS \
   -o jsonpath='{.metadata.uid}' > /grader/original_uid
-
-echo "Setup complete."

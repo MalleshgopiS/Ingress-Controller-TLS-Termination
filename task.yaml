@@ -6,10 +6,12 @@ category: kubernetes
 description: |
   A Deployment named ingress-controller exists in the default namespace.
 
+  A Service named ingress-controller exposes the Deployment on port 80.
+
   The nginx configuration is stored in ConfigMap:
     ingress-nginx-config
 
-  The configuration file custom.conf contains:
+  The file custom.conf contains:
 
       ssl_session_timeout 0m;
 
@@ -17,8 +19,6 @@ description: |
 
   Valid format:
       ^[1-9][0-9]*(s|m|h|d)$
-
-  A Service named ingress-controller exposes the Deployment.
 
 requirements:
   - Only modify ssl_session_timeout.
