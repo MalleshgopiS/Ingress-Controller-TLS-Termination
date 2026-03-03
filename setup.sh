@@ -4,17 +4,31 @@ set -e
 ###############################################################################
 # Ingress Controller TLS Termination (Hard++)
 #
-# This script prepares the initial state.
+# Nebula Initial Setup Script
 #
-# The nginx configuration intentionally contains:
-#     ssl_session_timeout 0m;
+# Creates:
+#   - Namespace: ingress-system
+#   - ConfigMap: ingress-nginx-config
+#   - Service: ingress-controller
+#   - Deployment: ingress-controller
 #
-# This value:
-#   - Is VALID for nginx startup (pods become Ready)
-#   - Is INVALID per task regex requirement:
-#         ^[1-9][0-9]*(s|m|h|d)$
+# Deployment Requirements:
+#   - Replicas: 3
+#   - RollingUpdate:
+#       maxUnavailable: 0
+#       maxSurge: 1
+#   - Image: nginx:1.25.3
+#   - Memory limit: 128Mi
 #
-# The student must change ONLY this value.
+# Intentional Misconfiguration:
+#   ssl_session_timeout 0m;
+#
+# 0m is:
+#   - Valid nginx syntax (pods start successfully)
+#   - INVALID per task regex:
+#       ^[1-9][0-9]*(s|m|h|d)$
+#
+# Student must change ONLY this value.
 ###############################################################################
 
 echo "Creating namespace..."
@@ -36,7 +50,7 @@ data:
       server {
         listen 80;
 
-        # INVALID per task regex (zero not allowed)
+        # INVALID per task regex (zero duration)
         ssl_session_timeout 0m;
 
         location / {
@@ -103,7 +117,7 @@ spec:
             name: ingress-nginx-config
 EOF
 
-echo "Waiting for deployment rollout..."
+echo "Waiting for rollout..."
 
 kubectl rollout status deployment/ingress-controller \
   -n ingress-system --timeout=300s

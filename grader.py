@@ -1,99 +1,85 @@
 """
 ==========================================================
-Nebula Hard++ Grader (Production Safe Version)
+Nebula Hard++ Grader (Deterministic Production Version)
 ==========================================================
 
-This grader validates the following requirements:
+Validates:
 
-SETUP VALIDATION
-- /grader/original_uid file exists
-- Deployment UID remains unchanged
+SETUP
+- original UID file exists
+- Deployment UID unchanged
 
 DEPLOYMENT INTEGRITY
-- Replicas remain 3
-- RollingUpdate maxUnavailable remains 0
-- Memory limit remains 128Mi
-- Image remains nginx:1.25.3
+- replicas = 3
+- maxUnavailable = 0
+- memory = 128Mi
+- image = nginx:1.25.3
 
 CONFIG VALIDATION
-- ssl_session_timeout exists
-- Value matches required regex:
+- ssl_session_timeout matches:
       ^[1-9][0-9]*(s|m|h|d)$
+- Other nginx.conf content preserved
 
 AVAILABILITY
-- All 3 replicas Ready
+- rollout completes successfully
+- all replicas Ready
 - Service returns HTTP 200
-- Restart counts remain stable
 
-Scoring:
-- Binary scoring
-- 1.0 if ALL checks pass
-- 0.0 otherwise
-
-Fully aligned with task.yaml description.
-No brittle string matching.
-No arbitrary thresholds.
-Nebula-safe.
+NO NON-DETERMINISTIC SLEEPS
+NO arbitrary timing windows
+NO brittle string matching
 ==========================================================
 """
 
 import subprocess
-import time
 import re
 import json
 import sys
 
 NS = "ingress-system"
 DEPLOYMENT = "ingress-controller"
+CONFIGMAP = "ingress-nginx-config"
 
 
-# --------------------------------------------------------
+# -------------------------------------------------------
 # Utility
-# --------------------------------------------------------
+# -------------------------------------------------------
 
 def run(cmd):
-    """Run shell command safely and return stdout."""
     result = subprocess.run(
-        cmd,
-        shell=True,
-        text=True,
-        capture_output=True
+        cmd, shell=True, text=True, capture_output=True
     )
     if result.returncode != 0:
         return None
     return result.stdout.strip()
 
 
-# --------------------------------------------------------
-# Setup Integrity
-# --------------------------------------------------------
+# -------------------------------------------------------
+# Setup Validation
+# -------------------------------------------------------
 
 def setup_integrity():
-    """Verify setup created original UID file."""
     return run("test -f /grader/original_uid && echo ok") == "ok"
 
 
 def uid_preserved():
-    """Verify Deployment UID has not changed."""
     try:
         original = open("/grader/original_uid").read().strip()
-    except Exception:
+    except:
         return False
 
     current = run(
         f"kubectl get deployment {DEPLOYMENT} "
         f"-n {NS} -o jsonpath='{{.metadata.uid}}'"
     )
-
     return current == original
 
 
-# --------------------------------------------------------
-# Deployment Constraints
-# --------------------------------------------------------
+# -------------------------------------------------------
+# Deployment Integrity
+# -------------------------------------------------------
 
 def replicas_preserved():
-    """Verify replica count remains 3."""
     return run(
         f"kubectl get deployment {DEPLOYMENT} "
         f"-n {NS} -o jsonpath='{{.spec.replicas}}'"
@@ -101,7 +87,6 @@ def replicas_preserved():
 
 
 def strategy_preserved():
-    """Verify maxUnavailable remains 0."""
     return run(
         f"kubectl get deployment {DEPLOYMENT} "
         f"-n {NS} "
@@ -110,7 +95,6 @@ def strategy_preserved():
 
 
 def memory_preserved():
-    """Verify memory limit remains 128Mi."""
     return run(
         f"kubectl get deployment {DEPLOYMENT} "
         f"-n {NS} "
@@ -119,7 +103,6 @@ def memory_preserved():
 
 
 def image_preserved():
-    """Verify image remains nginx:1.25.3."""
     return run(
         f"kubectl get deployment {DEPLOYMENT} "
         f"-n {NS} "
@@ -127,18 +110,16 @@ def image_preserved():
     ) == "nginx:1.25.3"
 
 
-# --------------------------------------------------------
+# -------------------------------------------------------
 # Config Validation
-# --------------------------------------------------------
+# -------------------------------------------------------
 
 def valid_timeout():
-    """Verify ssl_session_timeout matches required regex."""
     conf = run(
-        f"kubectl get configmap ingress-nginx-config "
+        f"kubectl get configmap {CONFIGMAP} "
         f"-n {NS} "
         "-o jsonpath='{.data.nginx\\.conf}'"
     )
-
     if not conf:
         return False
 
@@ -151,12 +132,51 @@ def valid_timeout():
     return re.fullmatch(r"[1-9][0-9]*(s|m|h|d)", value) is not None
 
 
-# --------------------------------------------------------
-# Availability Checks
-# --------------------------------------------------------
+def config_preserved():
+    """
+    Ensure nginx.conf still contains core structure.
+    Prevent full overwrite cheating.
+    """
+    conf = run(
+        f"kubectl get configmap {CONFIGMAP} "
+        f"-n {NS} "
+        "-o jsonpath='{.data.nginx\\.conf}'"
+    )
+
+    if not conf:
+        return False
+
+    required_fragments = [
+        "events",
+        "http",
+        "server",
+        "listen 80",
+        "location /"
+    ]
+
+    return all(fragment in conf for fragment in required_fragments)
+
+
+# -------------------------------------------------------
+# Availability
+# -------------------------------------------------------
+
+def rollout_successful():
+    """
+    Deterministic readiness check.
+    No arbitrary sleep.
+    """
+    result = subprocess.run(
+        f"kubectl rollout status deployment/{DEPLOYMENT} "
+        f"-n {NS} --timeout=120s",
+        shell=True,
+        text=True,
+        capture_output=True
+    )
+    return result.returncode == 0
+
 
 def all_ready():
-    """Verify all replicas are Ready."""
     return run(
         f"kubectl get deployment {DEPLOYMENT} "
         f"-n {NS} "
@@ -166,63 +186,23 @@ def all_ready():
 
 def http_200():
     """
-    Verify Service returns HTTP 200.
-    Uses existing nginx pod (no external images).
+    Deterministic HTTP check.
+    Uses Service proxy (no pod ordering).
     """
-    pod = run(
-        f"kubectl get pods -l app={DEPLOYMENT} "
-        f"-n {NS} "
-        "-o jsonpath='{.items[0].metadata.name}'"
-    )
-
-    if not pod:
-        return False
-
     output = run(
-        f"kubectl exec {pod} -n {NS} -- "
-        "wget -S -O /dev/null http://ingress-controller 2>&1 | grep 'HTTP/'"
-    )
-
-    return output is not None and "200" in output
-
-
-def restart_stable():
-    """Verify container restart counts remain stable."""
-    pods = run(
-        f"kubectl get pods -l app={DEPLOYMENT} "
+        f"kubectl run curl-test --rm -i --restart=Never "
+        f"--image=nginx:1.25.3 "
         f"-n {NS} "
-        "-o jsonpath='{.items[*].metadata.name}'"
+        f"-- curl -s -o /dev/null -w '%{{http_code}}' "
+        f"http://ingress-controller"
     )
 
-    if not pods:
-        return False
-
-    pod_list = pods.split()
-
-    before = [
-        run(
-            f"kubectl get pod {p} -n {NS} "
-            "-o jsonpath='{.status.containerStatuses[0].restartCount}'"
-        )
-        for p in pod_list
-    ]
-
-    time.sleep(20)
-
-    after = [
-        run(
-            f"kubectl get pod {p} -n {NS} "
-            "-o jsonpath='{.status.containerStatuses[0].restartCount}'"
-        )
-        for p in pod_list
-    ]
-
-    return before == after
+    return output == "200"
 
 
-# --------------------------------------------------------
+# -------------------------------------------------------
 # Execution
-# --------------------------------------------------------
+# -------------------------------------------------------
 
 results = {
     "setup_integrity": setup_integrity(),
@@ -232,9 +212,10 @@ results = {
     "memory_preserved": memory_preserved(),
     "image_preserved": image_preserved(),
     "valid_timeout": valid_timeout(),
+    "config_preserved": config_preserved(),
+    "rollout_successful": rollout_successful(),
     "all_ready": all_ready(),
     "http_200": http_200(),
-    "restart_stable": restart_stable(),
 }
 
 score = 1.0 if all(results.values()) else 0.0
