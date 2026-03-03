@@ -8,30 +8,34 @@ description: |
   Namespace:
     ingress-system
 
-  Resources already exist:
+  Existing Resources:
     - Deployment: ingress-controller
     - ConfigMap: ingress-nginx-config
     - Service: ingress-controller
 
-  The Deployment runs nginx:1.25.3 with 3 replicas.
-  The Deployment uses a RollingUpdate strategy with:
-      maxUnavailable: 0
+  The ConfigMap contains a key:
 
-  The nginx configuration stored in the ConfigMap currently contains:
+      nginx.conf
+
+  Inside nginx.conf, the following invalid directive exists:
 
       ssl_session_timeout 0;
 
-  This value is INVALID and must be fixed.
+  The Deployment:
+    - Uses image: nginx:1.25.3
+    - Has 3 replicas
+    - Uses RollingUpdate strategy with maxUnavailable=0
+    - Has memory limit 128Mi
 
   ----------------------------------------------------------
-  🎯 Your Objective
+  🎯 Objective
   ----------------------------------------------------------
 
-  Update the ConfigMap so that:
+  Modify the ConfigMap so that:
 
       ssl_session_timeout
 
-  is changed to a valid, non-zero nginx duration.
+  is updated to a valid, non-zero nginx duration.
 
   ----------------------------------------------------------
   ✅ Valid Duration Format
@@ -59,7 +63,7 @@ description: |
   - Do NOT change RollingUpdate strategy
   - Do NOT cause downtime
   - Do NOT overwrite the entire nginx configuration
-  - ONLY update the ssl_session_timeout value
+  - ONLY update the ssl_session_timeout value inside nginx.conf
 
   ----------------------------------------------------------
   🏁 Success Criteria

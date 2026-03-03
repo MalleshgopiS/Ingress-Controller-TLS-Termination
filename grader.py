@@ -1,12 +1,11 @@
 """
 ==========================================================
-Nebula Hard++ Grader (Final Clean Version)
+Nebula Hard++ Grader (Final Production Version)
 ==========================================================
 
-All checks must pass.
 Binary scoring:
-- score = 1.0 if all pass
-- score = 0.0 otherwise
+- 1.0 if ALL checks pass
+- 0.0 otherwise
 ==========================================================
 """
 
@@ -14,6 +13,7 @@ import subprocess
 import time
 import re
 import json
+import uuid
 
 NS = "ingress-system"
 DEPLOYMENT = "ingress-controller"
@@ -22,6 +22,7 @@ CURL_IMAGE = "curlimages/curl:8.5.0"
 
 
 def run(cmd):
+    """Run shell command safely and return output or None."""
     result = subprocess.run(cmd, shell=True, text=True, capture_output=True)
     if result.returncode != 0:
         return None
@@ -29,6 +30,7 @@ def run(cmd):
 
 
 def uid_preserved():
+    """Verify Deployment UID has not changed."""
     try:
         original = open("/grader/original_uid").read().strip()
         current = run(
@@ -41,6 +43,7 @@ def uid_preserved():
 
 
 def replicas_preserved():
+    """Verify replica count remains 3."""
     return run(
         f"kubectl get deployment {DEPLOYMENT} -n {NS} "
         "-o jsonpath='{.spec.replicas}'"
@@ -48,6 +51,7 @@ def replicas_preserved():
 
 
 def strategy_preserved():
+    """Verify RollingUpdate maxUnavailable remains 0."""
     return run(
         f"kubectl get deployment {DEPLOYMENT} -n {NS} "
         "-o jsonpath='{.spec.strategy.rollingUpdate.maxUnavailable}'"
@@ -55,6 +59,7 @@ def strategy_preserved():
 
 
 def memory_preserved():
+    """Verify memory limit remains 128Mi."""
     return run(
         f"kubectl get deployment {DEPLOYMENT} -n {NS} "
         "-o jsonpath='{.spec.template.spec.containers[0].resources.limits.memory}'"
@@ -62,6 +67,7 @@ def memory_preserved():
 
 
 def image_preserved():
+    """Verify nginx image remains unchanged."""
     return run(
         f"kubectl get deployment {DEPLOYMENT} -n {NS} "
         "-o jsonpath='{.spec.template.spec.containers[0].image}'"
@@ -69,6 +75,7 @@ def image_preserved():
 
 
 def valid_timeout():
+    """Verify ssl_session_timeout is valid non-zero format."""
     conf = run(
         f"kubectl get configmap {CONFIGMAP} -n {NS} "
         "-o jsonpath='{.data.nginx\\.conf}'"
@@ -82,6 +89,7 @@ def valid_timeout():
 
 
 def all_ready():
+    """Verify all replicas are Ready."""
     return run(
         f"kubectl get deployment {DEPLOYMENT} -n {NS} "
         "-o jsonpath='{.status.readyReplicas}'"
@@ -89,8 +97,10 @@ def all_ready():
 
 
 def http_200():
+    """Verify Service returns HTTP 200."""
+    pod_name = f"curl-test-{uuid.uuid4().hex[:6]}"
     output = run(
-        f"kubectl run curl-test --rm -i --restart=Never "
+        f"kubectl run {pod_name} --rm -i --restart=Never "
         f"--image={CURL_IMAGE} -n {NS} "
         f"-- curl -s -o /dev/null -w '%{{http_code}}' http://ingress-controller"
     )
@@ -98,6 +108,7 @@ def http_200():
 
 
 def restart_stable():
+    """Verify restart counts remain stable."""
     pods_raw = run(
         f"kubectl get pods -l app=ingress-controller -n {NS} "
         "-o jsonpath='{.items[*].metadata.name}'"
@@ -135,11 +146,10 @@ results = {
     "restart_stable": restart_stable(),
 }
 
-all_passed = all(results.values())
-score = 1.0 if all_passed else 0.0
+score = 1.0 if all(results.values()) else 0.0
 
 print(json.dumps({
     "score": score,
     "subscores": results,
-    "feedback": "All checks passed." if all_passed else "One or more checks failed."
+    "feedback": "All checks passed." if score == 1.0 else "One or more checks failed."
 }))

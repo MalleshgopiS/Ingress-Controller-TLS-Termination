@@ -2,17 +2,16 @@
 # ==========================================================
 # Hard++ Setup Script
 # ==========================================================
-#
-# Creates initial broken state:
-# - Namespace ingress-system
-# - ConfigMap with invalid ssl_session_timeout 0;
-# - Deployment with 3 replicas (nginx:1.25.3)
-# - Service exposing nginx
+# Creates:
+#   - Namespace ingress-system
+#   - ConfigMap ingress-nginx-config (key: nginx.conf)
+#   - Deployment ingress-controller (3 replicas)
+#   - Service ingress-controller
 #
 # Saves original Deployment UID to:
 #   /grader/original_uid
 #
-# nginx returns HTTP 200 for validation.
+# nginx returns HTTP 200 "OK" for validation.
 # ==========================================================
 
 set -e
@@ -21,7 +20,6 @@ NS="ingress-system"
 
 kubectl create namespace $NS 2>/dev/null || true
 
-# Create ConfigMap with INVALID timeout
 cat <<EOF | kubectl apply -f -
 apiVersion: v1
 kind: ConfigMap
@@ -46,7 +44,6 @@ data:
     }
 EOF
 
-# Create Service
 cat <<EOF | kubectl apply -f -
 apiVersion: v1
 kind: Service
@@ -61,7 +58,6 @@ spec:
       targetPort: 80
 EOF
 
-# Create Deployment
 cat <<EOF | kubectl apply -f -
 apiVersion: apps/v1
 kind: Deployment
@@ -103,9 +99,6 @@ EOF
 
 kubectl rollout status deployment/ingress-controller -n $NS --timeout=240s
 
-# Store original UID for grader validation
 mkdir -p /grader
 kubectl get deployment ingress-controller -n $NS \
   -o jsonpath='{.metadata.uid}' > /grader/original_uid
-
-echo "Setup complete."
