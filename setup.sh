@@ -1,110 +1,92 @@
-#!/usr/bin/env bash
+#!/bin/bash
+# ==========================================================
+# Nebula Hard++ Setup Script
+# ==========================================================
 #
-# ------------------------------------------------------------
-# Setup Script: Ingress Controller TLS Termination
-# ------------------------------------------------------------
+# Nebula Safety:
+# - Generates unique namespace (parallel safe)
+# - No cluster-global mutations
+# - Deterministic rollout waiting
 #
 # Creates:
-#   - Namespace: ingress-system
-#   - RBAC for ubuntu-user
-#   - Broken ConfigMap (ssl-session-timeout: "0")
-#   - Service
-#   - Deployment (nginx:1.25.3, memory=128Mi)
+# - Namespace (unique)
+# - RBAC
+# - ConfigMap (broken TLS)
+# - Service
+# - Deployment (3 replicas, strict RollingUpdate)
+# - Saves original UID
 #
-# Saves original Deployment UID for grader validation.
-#
-# IMPORTANT:
-#   - Nebula-safe (no condition=Available usage)
-#   - Uses readyReplicas loop
-# ------------------------------------------------------------
+# ==========================================================
 
-set -euo pipefail
+set -e
 
-NS="ingress-system"
+RUN_ID=$(date +%s%N)
+NS="ingress-system-${RUN_ID}"
 
-echo "Creating namespace..."
-kubectl get ns "$NS" >/dev/null 2>&1 || kubectl create namespace "$NS"
+echo "Using namespace: $NS"
 
-############################################################
-# RBAC
-############################################################
-echo "Granting ubuntu-user access..."
+kubectl create namespace $NS
 
-kubectl apply -f - <<EOF
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: ubuntu-user-admin
-  namespace: ${NS}
-rules:
-- apiGroups: [""]
-  resources: ["configmaps","pods","services"]
-  verbs: ["get","list","watch","create","update","patch","delete"]
-- apiGroups: ["apps"]
-  resources: ["deployments","replicasets"]
-  verbs: ["get","list","watch","create","update","patch","delete"]
-EOF
+echo $NS > /grader/namespace
+chmod 400 /grader/namespace
 
-kubectl apply -f - <<EOF
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: ubuntu-user-admin-binding
-  namespace: ${NS}
-subjects:
-- kind: ServiceAccount
-  name: ubuntu-user
-  namespace: default
-roleRef:
-  kind: Role
-  name: ubuntu-user-admin
-  apiGroup: rbac.authorization.k8s.io
-EOF
+kubectl create role ubuntu-user-admin \
+  --verb="*" \
+  --resource="*" \
+  -n $NS
 
-############################################################
-# Broken ConfigMap
-############################################################
-echo "Creating broken ConfigMap..."
+kubectl create rolebinding ubuntu-user-admin-binding \
+  --role=ubuntu-user-admin \
+  --user=ubuntu \
+  -n $NS
 
-kubectl apply -n "$NS" -f - <<EOF
+cat <<EOF | kubectl apply -f -
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: ingress-nginx-config
+  namespace: $NS
 data:
-  ssl-session-timeout: "0"
+  nginx.conf: |
+    events {}
+    http {
+      server {
+        listen 80;
+        ssl_session_timeout 0;
+        location / {
+          return 200 "OK\n";
+        }
+      }
+    }
 EOF
 
-############################################################
-# Service
-############################################################
-echo "Creating service..."
-
-kubectl apply -n "$NS" -f - <<EOF
+cat <<EOF | kubectl apply -f -
 apiVersion: v1
 kind: Service
 metadata:
   name: ingress-controller
+  namespace: $NS
 spec:
   selector:
     app: ingress-controller
   ports:
-  - port: 80
-    targetPort: 80
+    - port: 80
+      targetPort: 80
 EOF
 
-############################################################
-# Deployment
-############################################################
-echo "Creating deployment..."
-
-kubectl apply -n "$NS" -f - <<EOF
+cat <<EOF | kubectl apply -f -
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: ingress-controller
+  namespace: $NS
 spec:
-  replicas: 1
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
   selector:
     matchLabels:
       app: ingress-controller
@@ -114,42 +96,28 @@ spec:
         app: ingress-controller
     spec:
       containers:
-      - name: nginx
-        image: nginx:1.25.3
-        imagePullPolicy: IfNotPresent
-        ports:
-        - containerPort: 80
-        resources:
-          limits:
-            memory: "128Mi"
+        - name: nginx
+          image: nginx:1.25.3
+          ports:
+            - containerPort: 80
+          resources:
+            limits:
+              memory: "128Mi"
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+      volumes:
+        - name: nginx-config
+          configMap:
+            name: ingress-nginx-config
 EOF
 
-############################################################
-# Nebula-Safe Readiness Wait
-############################################################
-echo "Waiting for deployment readyReplicas == 1..."
+kubectl rollout status deployment/ingress-controller -n $NS --timeout=180s
 
-for i in {1..120}; do
-  READY=$(kubectl get deploy ingress-controller -n "$NS" \
-    -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
-
-  if [[ "$READY" == "1" ]]; then
-    echo "Deployment is ready."
-    break
-  fi
-
-  sleep 2
-done
-
-############################################################
-# Save original UID
-############################################################
-echo "Saving original UID..."
-
-mkdir -p /grader
-
-kubectl get deployment ingress-controller \
-  -n "$NS" \
+kubectl get deployment ingress-controller -n $NS \
   -o jsonpath='{.metadata.uid}' > /grader/original_uid
 
-echo "✅ Setup complete."
+chmod 400 /grader/original_uid
+
+echo "✅ Hard++ Setup complete."

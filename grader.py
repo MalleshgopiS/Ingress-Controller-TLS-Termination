@@ -1,189 +1,125 @@
-#!/usr/bin/env python3
 """
-Grader for: Ingress Controller TLS Termination
+==========================================================
+Nebula Hard++ Hardened Grader
+==========================================================
 
-This grader validates that the candidate correctly fixes the TLS session
-timeout misconfiguration while preserving the integrity of the Deployment.
+Validates:
+- UID preserved
+- Replicas preserved (3)
+- Rolling strategy unchanged
+- Memory preserved (128Mi)
+- Image preserved (nginx:1.25.3)
+- Valid timeout format
+- All replicas Ready
+- Continuous HTTP 200 (no downtime)
+- Restart stability
 
-The following checks are performed:
-
-1. Deployment UID is preserved
-   - Ensures the Deployment was not deleted or recreated.
-
-2. Memory limit remains exactly 128Mi
-   - Ensures resource constraints were not modified.
-
-3. Container image remains nginx:1.25.3
-   - Ensures the base image was not changed.
-
-4. ssl-session-timeout is a valid non-zero nginx duration
-   - Must match: ^[1-9][0-9]*(s|m|h|d|w|M|y)$
-
-5. Deployment becomes Ready
-   - readyReplicas == 1
-
-6. Nginx serves HTTP 200 responses
-   - Verified via port-forward and curl
-
-7. Container restart count remains stable
-   - Ensures no crash loops after the fix
-
-Final Score:
-    Mean of all 7 binary checks (0.0 to 1.0)
-
-Full Score (1.0) requires all checks to pass.
+Parallel-safe via unique namespace.
+==========================================================
 """
 
-import subprocess
-import time
-import re
-
-NS = "ingress-system"
-DEPLOY = "ingress-controller"
-CM = "ingress-nginx-config"
-
-
-class GradeResult:
-    def __init__(self, score, subscores, weights, feedback=""):
-        self.score = score
-        self.subscores = subscores
-        self.weights = weights
-        self.feedback = feedback
-
+import subprocess, time, re, json
 
 def run(cmd):
     try:
-        return subprocess.check_output(
-            cmd, shell=True, stderr=subprocess.DEVNULL
-        ).decode().strip()
-    except Exception:
+        return subprocess.check_output(cmd, shell=True, text=True).strip()
+    except:
         return ""
 
+NS = open("/grader/namespace").read().strip()
 
-def wait_until(fn, timeout=300, interval=5):
-    """
-    Wait up to 5 minutes for Kubernetes readiness.
-    """
-    start = time.time()
-    while time.time() - start < timeout:
-        if fn():
-            return True
-        time.sleep(interval)
-    return False
-
-
-def nginx_check():
-    """
-    Port-forward service and verify nginx returns HTTP 200.
-    Retry for up to 60 seconds to handle slow container warmup.
-    """
-    pf = subprocess.Popen(
-        f"kubectl port-forward -n {NS} svc/{DEPLOY} 18080:80",
-        shell=True,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-
-    time.sleep(5)
-
-    ok = False
-    for _ in range(12):
-        code = run("curl -s -o /dev/null -w '%{http_code}' http://localhost:18080")
-        if code == "200":
-            ok = True
-            break
-        time.sleep(5)
-
-    pf.terminate()
-    return ok
-
-
-def grade(task_dir=None):
-
-    # Initial stabilization for Nebula snapshot environments
-    time.sleep(25)
-
-    subscores = {}
-    weights = {}
-
-    # 1. UID preserved
-    original_uid = run("cat /grader/original_uid")
-    current_uid = run(
-        f"kubectl get deploy {DEPLOY} -n {NS} "
+def uid_preserved():
+    original = open("/grader/original_uid").read().strip()
+    current = run(
+        f"kubectl get deployment ingress-controller -n {NS} "
         "-o jsonpath='{.metadata.uid}'"
     )
-    subscores["uid_preserved"] = original_uid == current_uid
-    weights["uid_preserved"] = 1
+    return original != "" and original == current
 
-    # 2. Memory preserved
-    memory = run(
-        f"kubectl get deploy {DEPLOY} -n {NS} "
+def replicas_preserved():
+    return run(
+        f"kubectl get deployment ingress-controller -n {NS} "
+        "-o jsonpath='{.spec.replicas}'"
+    ) == "3"
+
+def strategy_preserved():
+    return run(
+        f"kubectl get deployment ingress-controller -n {NS} "
+        "-o jsonpath='{.spec.strategy.rollingUpdate.maxUnavailable}'"
+    ) == "0"
+
+def memory_preserved():
+    return run(
+        f"kubectl get deployment ingress-controller -n {NS} "
         "-o jsonpath='{.spec.template.spec.containers[0].resources.limits.memory}'"
-    )
-    subscores["memory_preserved"] = memory == "128Mi"
-    weights["memory_preserved"] = 1
+    ) == "128Mi"
 
-    # 3. Image preserved
-    image = run(
-        f"kubectl get deploy {DEPLOY} -n {NS} "
+def image_preserved():
+    return run(
+        f"kubectl get deployment ingress-controller -n {NS} "
         "-o jsonpath='{.spec.template.spec.containers[0].image}'"
+    ) == "nginx:1.25.3"
+
+def valid_timeout():
+    conf = run(
+        f"kubectl get configmap ingress-nginx-config -n {NS} "
+        "-o jsonpath='{.data.nginx\\.conf}'"
     )
-    subscores["image_preserved"] = image == "nginx:1.25.3"
-    weights["image_preserved"] = 1
+    match = re.search(r"ssl_session_timeout\s+([^\s;]+);", conf)
+    if not match:
+        return False
+    return re.fullmatch(r"^[1-9][0-9]*(s|m|h|d|w|M|y)$", match.group(1)) is not None
 
-    # 4. Valid timeout format
-    timeout_value = run(
-        f"kubectl get cm {CM} -n {NS} "
-        "-o jsonpath='{.data.ssl-session-timeout}'"
-    )
+def all_ready():
+    return run(
+        f"kubectl get deployment ingress-controller -n {NS} "
+        "-o jsonpath='{.status.readyReplicas}'"
+    ) == "3"
 
-    pattern = r"^[1-9][0-9]*(s|m|h|d|w|M|y)$"
-    subscores["valid_timeout"] = (
-        re.match(pattern, timeout_value or "") is not None
-    )
-    weights["valid_timeout"] = 1
+def no_downtime():
+    run(f"kubectl port-forward svc/ingress-controller 18080:80 -n {NS} &")
+    time.sleep(3)
+    failures = 0
+    for _ in range(10):
+        code = run("curl -s -o /dev/null -w '%{http_code}' http://localhost:18080")
+        if code != "200":
+            failures += 1
+        time.sleep(2)
+    run("pkill -f port-forward")
+    return failures == 0
 
-    # 5. Deployment ready
-    def ready():
-        return run(
-            f"kubectl get deploy {DEPLOY} -n {NS} "
-            "-o jsonpath='{.status.readyReplicas}'"
-        ) == "1"
-
-    subscores["deployment_ready"] = wait_until(ready)
-    weights["deployment_ready"] = 1
-
-    # 6. HTTP 200
-    subscores["nginx_serving"] = nginx_check()
-    weights["nginx_serving"] = 1
-
-    # 7. Restart stable
+def restart_stable():
     pod = run(
-        f"kubectl get pods -n {NS} "
-        "-l app=ingress-controller "
+        f"kubectl get pod -l app=ingress-controller -n {NS} "
         "-o jsonpath='{.items[0].metadata.name}'"
     )
+    before = run(
+        f"kubectl get pod {pod} -n {NS} "
+        "-o jsonpath='{{.status.containerStatuses[0].restartCount}}'"
+    )
+    time.sleep(30)
+    after = run(
+        f"kubectl get pod {pod} -n {NS} "
+        "-o jsonpath='{{.status.containerStatuses[0].restartCount}}'"
+    )
+    return before == after
 
-    restart_stable = False
-    if pod:
-        before = run(
-            f"kubectl get pod {pod} -n {NS} "
-            "-o jsonpath='{.status.containerStatuses[0].restartCount}'"
-        )
-        time.sleep(60)
-        after = run(
-            f"kubectl get pod {pod} -n {NS} "
-            "-o jsonpath='{.status.containerStatuses[0].restartCount}'"
-        )
-        restart_stable = before == after
+results = {
+    "uid_preserved": uid_preserved(),
+    "replicas_preserved": replicas_preserved(),
+    "strategy_preserved": strategy_preserved(),
+    "memory_preserved": memory_preserved(),
+    "image_preserved": image_preserved(),
+    "valid_timeout": valid_timeout(),
+    "all_ready": all_ready(),
+    "no_downtime": no_downtime(),
+    "restart_stable": restart_stable(),
+}
 
-    subscores["restart_stable"] = restart_stable
-    weights["restart_stable"] = 1
+score = sum(results.values()) / len(results)
 
-    total = len(subscores)
-    passed = sum(1 for v in subscores.values() if v)
-    score = passed / total
-
-    feedback = f"{passed}/{total} checks passed."
-
-    return GradeResult(score, subscores, weights, feedback)
+print(json.dumps({
+    "score": score,
+    "subscores": results,
+    "feedback": f"{sum(results.values())}/{len(results)} checks passed."
+}))

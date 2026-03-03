@@ -1,61 +1,29 @@
-id: ingress-controller-tls-termination
-
-title: Fix TLS Session Timeout Misconfiguration in Ingress Controller
-
+id: ingress-controller-tls-termination-hardpp
+title: Ingress Controller TLS Termination (Hard++)
 difficulty: hard
 
 description: |
-  A Kubernetes ingress controller is experiencing instability due to an
-  incorrect TLS session cache configuration.
+  The ingress controller is misconfigured with:
 
-  The ConfigMap `ingress-nginx-config` contains the setting:
+      ssl_session_timeout 0;
 
-      ssl-session-timeout: "0"
+  The Deployment runs 3 replicas using a strict RollingUpdate strategy.
 
-  A timeout value of "0" disables session expiration, allowing TLS sessions
-  to accumulate indefinitely and causing memory growth over time.
+  Your task:
+  Fix the timeout configuration using a valid non-zero nginx duration
+  (e.g., 10m) while preserving availability and deployment integrity.
 
-  Your task is to correct this configuration safely without disrupting
-  the existing Deployment.
+  Constraints:
+  - Do NOT delete or recreate the Deployment
+  - Do NOT scale replicas
+  - Do NOT modify image (nginx:1.25.3)
+  - Do NOT modify memory limit (128Mi)
+  - Do NOT change RollingUpdate strategy
+  - Do NOT cause downtime
 
-environment:
-  namespace: ingress-system
-  deployment: ingress-controller
-  configmap: ingress-nginx-config
-
-objectives:
-  - Update the ConfigMap `ingress-nginx-config`.
-  - Set `ssl-session-timeout` to a valid non-zero nginx duration.
-
-constraints:
-  - Do NOT delete or recreate the Deployment.
-  - The Deployment UID must remain unchanged.
-  - The container image must remain `nginx:1.25.3`.
-  - The memory limit must remain exactly `128Mi`.
-
-success_criteria:
-  - Deployment becomes Ready.
-  - nginx serves HTTP 200 responses.
-  - Container restart count remains stable.
-  - ssl-session-timeout is a valid non-zero nginx duration.
-
-notes: |
-  Valid nginx duration examples include:
-
-      10s
-      5m
-      1h
-      1d
-
-  Format:
-
-      <positive_integer><unit>
-
-  Supported units:
-      s = seconds
-      m = minutes
-      h = hours
-      d = days
-      w = weeks
-      M = months
-      y = years
+  Success Criteria:
+  - 3 replicas remain Ready
+  - HTTP 200 continuously served
+  - UID preserved
+  - Restart counts stable
+  - Strategy unchanged
