@@ -1,24 +1,11 @@
 # ============================================================
 # grader.py
-#
-# Validates:
-# 1. Deployment UID preserved
-# 2. Image remains nginx:1.25.3
-# 3. Memory limit remains 128Mi
-# 4. ssl-session-timeout is valid non-zero nginx duration
-# 5. Deployment becomes Available
-# 6. Service returns HTTP 200
-#
-# Returns object with:
-#   score
-#   subscores
-#   weights
-#   feedback
 # ============================================================
 
 import subprocess
 import re
 import time
+import json
 
 NAMESPACE = "default"
 DEPLOYMENT = "ingress-controller"
@@ -50,7 +37,6 @@ def wait_for_available(timeout_seconds=120):
                 return True
         except Exception:
             pass
-
         time.sleep(2)
     return False
 
@@ -84,7 +70,6 @@ def wait_for_http(timeout_seconds=60):
 
 
 def grade(task=None):
-
     try:
         # 1️⃣ UID preserved
         original_uid = open("/grader/original_uid").read().strip()
@@ -115,11 +100,12 @@ def grade(task=None):
         if memory != "128Mi":
             return Result(0.0, "Memory limit was modified.")
 
-        # 4️⃣ Timeout valid
-        timeout_value = run(
-            f"kubectl get configmap {CONFIGMAP} -n {NAMESPACE} "
-            "-o jsonpath='{{.data.ssl-session-timeout}}'"
-        ).strip("'")
+        # 4️⃣ Timeout valid (JSON SAFE VERSION)
+        cm_json = run(
+            f"kubectl get configmap {CONFIGMAP} -n {NAMESPACE} -o json"
+        )
+
+        timeout_value = json.loads(cm_json)["data"]["ssl-session-timeout"]
 
         if not re.fullmatch(r"[1-9][0-9]*(s|m|h|d|w|M|y)", timeout_value):
             return Result(0.0, "Invalid ssl-session-timeout value.")
