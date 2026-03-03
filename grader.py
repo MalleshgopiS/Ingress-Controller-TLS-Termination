@@ -9,10 +9,11 @@
 # 5. Deployment becomes Available
 # 6. Service returns HTTP 200
 #
-# Returns:
-#   result.score
-#   result.subscores
-#   result.weights
+# Returns object with:
+#   score
+#   subscores
+#   weights
+#   feedback
 # ============================================================
 
 import subprocess
@@ -25,10 +26,11 @@ CONFIGMAP = "ingress-nginx-config"
 
 
 class Result:
-    def __init__(self, score):
+    def __init__(self, score=0.0, feedback=""):
         self.score = score
         self.subscores = {}
         self.weights = {}
+        self.feedback = feedback
 
 
 def run(cmd):
@@ -50,7 +52,6 @@ def wait_for_available(timeout_seconds=120):
             pass
 
         time.sleep(2)
-
     return False
 
 
@@ -76,11 +77,8 @@ def wait_for_http(timeout_seconds=60):
                     return True
             except Exception:
                 pass
-
             time.sleep(1)
-
         return False
-
     finally:
         pf.terminate()
 
@@ -97,7 +95,7 @@ def grade(task=None):
         ).strip("'")
 
         if original_uid != current_uid:
-            return Result(0.0)
+            return Result(0.0, "Deployment UID was modified.")
 
         # 2️⃣ Image preserved
         image = run(
@@ -106,7 +104,7 @@ def grade(task=None):
         ).strip("'")
 
         if image != "nginx:1.25.3":
-            return Result(0.0)
+            return Result(0.0, "Container image was modified.")
 
         # 3️⃣ Memory preserved
         memory = run(
@@ -115,7 +113,7 @@ def grade(task=None):
         ).strip("'")
 
         if memory != "128Mi":
-            return Result(0.0)
+            return Result(0.0, "Memory limit was modified.")
 
         # 4️⃣ Timeout valid
         timeout_value = run(
@@ -124,17 +122,17 @@ def grade(task=None):
         ).strip("'")
 
         if not re.fullmatch(r"[1-9][0-9]*(s|m|h|d|w|M|y)", timeout_value):
-            return Result(0.0)
+            return Result(0.0, "Invalid ssl-session-timeout value.")
 
         # 5️⃣ Deployment available
         if not wait_for_available():
-            return Result(0.0)
+            return Result(0.0, "Deployment did not become available.")
 
         # 6️⃣ HTTP check
         if not wait_for_http():
-            return Result(0.0)
+            return Result(0.0, "Service did not return HTTP 200.")
 
-        return Result(1.0)
+        return Result(1.0, "All checks passed successfully.")
 
-    except Exception:
-        return Result(0.0)
+    except Exception as e:
+        return Result(0.0, f"Grader exception: {str(e)}")
