@@ -7,22 +7,34 @@ CONFIGMAP="ingress-nginx-config"
 SERVICE="ingress-controller"
 
 echo "Creating ConfigMap..."
+
 kubectl create configmap ${CONFIGMAP} \
   --from-literal=nginx.conf='
-events {}
+worker_processes 1;
+
+events {
+    worker_connections 1024;
+}
+
 http {
-  server {
-    listen 80;
-    ssl_session_timeout 0m;
-    location / {
-      return 200 "OK";
+    sendfile on;
+    keepalive_timeout 65;
+
+    server {
+        listen 80;
+
+        ssl_session_timeout 0m;
+
+        location / {
+            return 200 "OK";
+        }
     }
-  }
 }
 ' \
   -n ${NAMESPACE}
 
 echo "Creating Service..."
+
 kubectl apply -n ${NAMESPACE} -f - <<EOF
 apiVersion: v1
 kind: Service
@@ -37,6 +49,7 @@ spec:
 EOF
 
 echo "Creating Deployment..."
+
 kubectl apply -n ${NAMESPACE} -f - <<EOF
 apiVersion: apps/v1
 kind: Deployment
@@ -61,9 +74,6 @@ spec:
         image: nginx:1.25.3
         imagePullPolicy: IfNotPresent
         resources:
-          requests:
-            memory: 64Mi
-            cpu: 50m
           limits:
             memory: 128Mi
         ports:
@@ -79,9 +89,12 @@ spec:
 EOF
 
 echo "Waiting for rollout..."
+
 kubectl rollout status deployment/${DEPLOYMENT} -n ${NAMESPACE} --timeout=300s
 
 echo "Saving original UID..."
-kubectl get deployment ${DEPLOYMENT} -n ${NAMESPACE} -o jsonpath='{.metadata.uid}' > /grader/original_uid
+
+kubectl get deployment ${DEPLOYMENT} -n ${NAMESPACE} \
+  -o jsonpath='{.metadata.uid}' > /grader/original_uid
 
 echo "Setup complete."

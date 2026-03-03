@@ -1,23 +1,5 @@
 #!/usr/bin/env python3
 
-"""
-Grader for Ingress Controller TLS Termination Task
-
-Validates:
-
-1. Setup integrity (original UID saved)
-2. Deployment UID unchanged
-3. Replicas remain 3
-4. RollingUpdate maxUnavailable remains 0
-5. Memory limit remains 128Mi
-6. Image remains nginx:1.25.3
-7. ssl_session_timeout matches regex ^[1-9][0-9]*(s|m|h|d)$
-8. nginx.conf structure preserved
-9. Rollout successful
-10. All replicas Ready
-11. HTTP 200 served from Service
-"""
-
 import subprocess
 import re
 import sys
@@ -63,7 +45,7 @@ def valid_timeout():
 
 def config_preserved():
     config = run(f"kubectl get configmap {CONFIGMAP} -n {NAMESPACE} -o jsonpath='{{.data.nginx\\.conf}}'")
-    required = ["events", "http", "server", "listen 80", "location /"]
+    required = ["worker_processes", "events", "http", "server", "listen 80"]
     return all(fragment in config for fragment in required)
 
 def rollout_successful():
@@ -76,8 +58,12 @@ def all_ready():
     return run(f"kubectl get deployment {DEPLOYMENT} -n {NAMESPACE} -o jsonpath='{{.status.readyReplicas}}'") == "3"
 
 def http_200():
-    cmd = f"kubectl run curl-test --rm -i --restart=Never --image=nginx:1.25.3 -n {NAMESPACE} -- curl -s -o /dev/null -w '%{{http_code}}' http://{DEPLOYMENT}"
-    return run(cmd) == "200"
+    return subprocess.run(
+        f"kubectl run curl-test --rm --restart=Never "
+        f"--image=curlimages/curl -n {NAMESPACE} "
+        f"-- curl -s http://{DEPLOYMENT} | grep OK",
+        shell=True
+    ).returncode == 0
 
 checks = [
     setup_integrity(),
