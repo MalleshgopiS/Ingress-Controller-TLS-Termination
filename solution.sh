@@ -1,22 +1,28 @@
 #!/usr/bin/env bash
 #
 # ------------------------------------------------------------
-# Solution Script: Ingress Controller TLS Termination Fix
+# Solution Script: Fix TLS Session Timeout
 # ------------------------------------------------------------
 #
 # Objective:
-#   Fix the invalid ssl_session_timeout configuration in nginx.
+#   Update ssl-session-timeout in the ConfigMap to a
+#   valid non-zero nginx duration.
+#
+# Valid examples:
+#   10s
+#   5m
+#   1h
+#   1d
 #
 # Constraints:
-#   - MUST NOT delete or recreate the Deployment.
-#   - MUST preserve Deployment UID.
-#   - MUST preserve memory limit (128Mi).
-#   - MUST preserve container image (nginx:1.25.3).
+#   - MUST NOT delete or recreate the Deployment
+#   - MUST preserve memory limit (128Mi)
+#   - MUST preserve container image (nginx:1.25.3)
 #
 # Approach:
-#   1. Patch ConfigMap with valid ssl_session_timeout (10m).
-#   2. Delete pod to reload nginx configuration.
-#   3. Wait for new pod to become Ready.
+#   1. Patch the ConfigMap key ssl-session-timeout
+#   2. Restart the pod to apply the change
+#   3. Wait until deployment is ready
 #
 # ------------------------------------------------------------
 
@@ -24,20 +30,24 @@ set -euo pipefail
 
 NS="ingress-system"
 
-echo "Fixing ssl_session_timeout..."
+echo "Updating ssl-session-timeout to valid value..."
 
+# Example valid value (grader accepts any valid non-zero duration)
 kubectl patch configmap ingress-nginx-config \
   -n "$NS" \
   --type merge \
-  -p '{"data":{"default.conf":"server {\n  listen 80;\n  location / {\n    return 200 \"OK\";\n  }\n  ssl_session_timeout 10m;\n}"}}'
+  -p '{"data":{"ssl-session-timeout":"10m"}}'
 
-echo "Restarting pod..."
+echo "Restarting pod to apply configuration..."
 
 kubectl delete pod -n "$NS" -l app=ingress-controller
 
-kubectl wait pod -n "$NS" -l app=ingress-controller \
-  --for=condition=Ready --timeout=300s
+kubectl wait deployment ingress-controller \
+  -n "$NS" \
+  --for=condition=Available \
+  --timeout=300s
 
-sleep 20
+echo "Allowing brief stabilization..."
+sleep 15
 
-echo "✅ Fix applied successfully."
+echo "✅ TLS session timeout fixed."

@@ -1,23 +1,28 @@
 #!/usr/bin/env bash
 #
 # ------------------------------------------------------------
-# Setup Script: Ingress Controller TLS Termination (Broken State)
+# Setup Script: Ingress Controller TLS Termination (Broken)
 # ------------------------------------------------------------
 #
 # This script prepares the initial broken Kubernetes environment.
 #
 # It performs the following:
-#   1. Creates the namespace `ingress-system`
-#   2. Grants ubuntu-user RBAC permissions
-#   3. Creates a broken ConfigMap containing invalid ssl_session_timeout (0)
+#
+#   1. Creates namespace: ingress-system
+#   2. Grants ubuntu-user RBAC access in that namespace
+#   3. Creates a ConfigMap containing:
+#        ssl-session-timeout: "0"
+#      (This is intentionally invalid — timeout must be non-zero)
 #   4. Creates a Service exposing nginx on port 80
 #   5. Deploys nginx:1.25.3 with memory limit 128Mi
-#   6. Mounts the ConfigMap into nginx configuration
-#   7. Waits for the pod to become Ready
-#   8. Saves the original Deployment UID for grader validation
+#   6. Mounts the ConfigMap as environment variable
+#   7. Waits until the Deployment becomes Ready
+#   8. Stores the original Deployment UID for grading
 #
-# The Deployment must NOT be recreated during the solution.
-# Only the ConfigMap should be fixed.
+# IMPORTANT CONSTRAINTS (enforced by grader):
+#   - Deployment must NOT be recreated
+#   - Memory limit must remain 128Mi
+#   - Image must remain nginx:1.25.3
 #
 # ------------------------------------------------------------
 
@@ -26,10 +31,10 @@ set -euo pipefail
 NS="ingress-system"
 
 echo "Creating namespace..."
-kubectl get ns $NS >/dev/null 2>&1 || kubectl create namespace $NS
+kubectl get ns "$NS" >/dev/null 2>&1 || kubectl create namespace "$NS"
 
 ############################################
-# RBAC
+# RBAC for ubuntu-user
 ############################################
 echo "Granting ubuntu-user access..."
 
@@ -69,26 +74,21 @@ EOF
 ############################################
 echo "Creating broken ConfigMap..."
 
-kubectl apply -n $NS -f - <<EOF
+kubectl apply -n "$NS" -f - <<EOF
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: ingress-nginx-config
 data:
-  default.conf: |
-    server {
-      listen 80;
-      location / {
-        return 200 "OK";
-      }
-      ssl_session_timeout 0;
-    }
+  ssl-session-timeout: "0"
 EOF
 
 ############################################
 # Service
 ############################################
-kubectl apply -n $NS -f - <<EOF
+echo "Creating service..."
+
+kubectl apply -n "$NS" -f - <<EOF
 apiVersion: v1
 kind: Service
 metadata:
@@ -104,7 +104,9 @@ EOF
 ############################################
 # Deployment
 ############################################
-kubectl apply -n $NS -f - <<EOF
+echo "Creating deployment..."
+
+kubectl apply -n "$NS" -f - <<EOF
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -128,21 +130,31 @@ spec:
         resources:
           limits:
             memory: "128Mi"
-        volumeMounts:
-        - name: nginx-config
-          mountPath: /etc/nginx/conf.d
-      volumes:
-      - name: nginx-config
-        configMap:
-          name: ingress-nginx-config
+        env:
+        - name: SSL_SESSION_TIMEOUT
+          valueFrom:
+            configMapKeyRef:
+              name: ingress-nginx-config
+              key: ssl-session-timeout
 EOF
 
-echo "Waiting for pod Ready..."
-kubectl wait pod -n $NS -l app=ingress-controller \
-  --for=condition=Ready --timeout=300s
+############################################
+# Wait for Ready
+############################################
+echo "Waiting for deployment readiness..."
 
+kubectl wait deployment ingress-controller \
+  -n "$NS" \
+  --for=condition=Available \
+  --timeout=300s
+
+############################################
+# Save Deployment UID
+############################################
 mkdir -p /grader
-kubectl get deploy ingress-controller -n $NS \
+
+kubectl get deploy ingress-controller \
+  -n "$NS" \
   -o jsonpath='{.metadata.uid}' > /grader/original_uid
 
 echo "✅ Setup complete."
