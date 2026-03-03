@@ -1,52 +1,59 @@
-#!/usr/bin/env bash
+#!/bin/bash
 set -e
 
-NS="ingress-system"
-APP_LABEL="app=ingress-controller"
+NAMESPACE="ingress-system"
+DEPLOYMENT="ingress-controller"
+CONFIGMAP="ingress-nginx-config"
 
-echo "Patching ConfigMap..."
+echo "Updating ssl-session-timeout in ConfigMap..."
 
-kubectl patch configmap ingress-nginx-config \
-  -n $NS \
+# Patch ConfigMap with valid non-zero nginx duration
+kubectl patch configmap "$CONFIGMAP" \
+  -n "$NAMESPACE" \
   --type merge \
   -p '{"data":{"ssl-session-timeout":"10m"}}'
 
-echo "Deleting existing pod to reload configuration..."
+echo "♻ Restarting pod to reload configuration..."
 
-OLD_POD=$(kubectl get pods -n $NS -l $APP_LABEL \
-  -o jsonpath='{.items[0].metadata.name}')
+# Delete existing pod (Deployment will recreate it)
+kubectl delete pod -n "$NAMESPACE" -l app=ingress-controller
 
-kubectl delete pod "$OLD_POD" -n $NS --wait=false
+echo "Waiting for Deployment rollout to complete..."
 
-echo "Waiting for new pod to be created..."
+# Wait for Deployment to be fully available
+kubectl rollout status deployment/"$DEPLOYMENT" \
+  -n "$NAMESPACE" \
+  --timeout=120s
 
-for i in {1..60}; do
-  NEW_POD=$(kubectl get pods -n $NS -l $APP_LABEL \
-    -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+echo "🧪 Verifying Deployment readiness..."
 
-  if [[ -n "$NEW_POD" && "$NEW_POD" != "$OLD_POD" ]]; then
-    echo "New pod detected: $NEW_POD"
-    break
-  fi
+# Ensure readyReplicas == 1
+READY=$(kubectl get deployment "$DEPLOYMENT" \
+  -n "$NAMESPACE" \
+  -o jsonpath='{.status.readyReplicas}')
 
-  sleep 2
-done
+if [ "$READY" != "1" ]; then
+  echo "Deployment not fully ready"
+  exit 1
+fi
 
-echo "Waiting for pod to reach Running phase..."
+echo "🌐 Verifying nginx is serving HTTP 200..."
 
-for i in {1..90}; do
-  STATUS=$(kubectl get pod "$NEW_POD" -n $NS \
-    -o jsonpath='{.status.phase}' 2>/dev/null || true)
+# Port-forward in background
+kubectl port-forward svc/"$DEPLOYMENT" 18080:80 -n "$NAMESPACE" >/dev/null 2>&1 &
+PF_PID=$!
 
-  if [[ "$STATUS" == "Running" ]]; then
-    echo "Pod is Running"
-    break
-  fi
+# Allow port-forward to initialize
+sleep 5
 
-  sleep 2
-done
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:18080 || true)
 
-echo "Stabilizing..."
-sleep 20
+# Kill port-forward
+kill $PF_PID >/dev/null 2>&1 || true
 
-echo "✅ Fix applied successfully."
+if [ "$HTTP_CODE" != "200" ]; then
+  echo "Nginx not serving HTTP 200"
+  exit 1
+fi
+
+echo "Fix applied successfully."
