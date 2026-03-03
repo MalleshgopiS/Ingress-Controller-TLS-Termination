@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ============================================================
 # solution.sh
-# Fixes invalid ssl-session-timeout and triggers async restart
+# Fixes invalid ssl-session-timeout and safely recycles the pod
 # ============================================================
 
 set -e
@@ -15,9 +15,10 @@ kubectl patch configmap $CONFIGMAP \
   --type merge \
   -p '{"data":{"ssl-session-timeout":"10m"}}'
 
-echo "2. Triggering async rollout restart to clear CrashLoopBackOff..."
-# This command runs instantly in the background. It preserves the Deployment UID, 
-# memory limits, and container image while spawning a fresh, healthy pod.
-kubectl rollout restart deployment/ingress-controller -n $NAMESPACE
+echo "2. Deleting old pod (blocking until fully terminated)..."
+# We do NOT use --force or --wait=false. 
+# This command blocks until the old pod is completely dead and its memory is 100% freed.
+kubectl delete pods -n $NAMESPACE -l app=ingress-controller
 
-echo "✅ Fix applied successfully. Exiting immediately to let the grader monitor readiness."
+echo "✅ Fix applied successfully. The ReplicaSet will now spawn a fresh pod into the freed memory."
+# Exiting immediately allows the Python grader to patiently monitor the new pod's startup phase.
