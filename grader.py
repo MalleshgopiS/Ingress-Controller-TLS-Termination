@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """
-Grader for Ingress Controller TLS Session Timeout task.
+Grader for TLS Session Timeout Fix Task.
 
-This grader verifies:
-1. Deployment UID preserved
-2. Image preserved
-3. Memory limit preserved
-4. ConfigMap contains valid non-zero duration
-5. Deployment is Available
+Validation Criteria:
+
+1. Deployment UID unchanged
+2. Image remains nginx:1.25.3
+3. Memory remains 128Mi
+4. ConfigMap contains valid non-zero nginx duration
+5. Deployment condition Available=True
 6. HTTP endpoint returns 200
 """
 
@@ -15,7 +16,6 @@ import subprocess
 import json
 import re
 import time
-import socket
 
 NAMESPACE = "ingress-system"
 DEPLOYMENT = "ingress-controller"
@@ -39,45 +39,37 @@ def wait_for_http(timeout=30):
 results = {}
 
 try:
-    # UID preserved
     original_uid = open("/grader/original_uid").read().strip()
     current_uid = run(
-        f"kubectl get deployment {DEPLOYMENT} -n {NAMESPACE} "
-        "-o jsonpath='{.metadata.uid}'"
+        f"kubectl get deployment {DEPLOYMENT} -n {NAMESPACE} -o jsonpath='{{.metadata.uid}}'"
     )
     results["uid_preserved"] = original_uid == current_uid
 
-    # Image preserved
     image = run(
-        f"kubectl get deployment {DEPLOYMENT} -n {NAMESPACE} "
-        "-o jsonpath='{.spec.template.spec.containers[0].image}'"
+        f"kubectl get deployment {DEPLOYMENT} -n {NAMESPACE} -o jsonpath='{{.spec.template.spec.containers[0].image}}'"
     )
     results["image_preserved"] = image == "nginx:1.25.3"
 
-    # Memory preserved
     memory = run(
-        f"kubectl get deployment {DEPLOYMENT} -n {NAMESPACE} "
-        "-o jsonpath='{.spec.template.spec.containers[0].resources.limits.memory}'"
+        f"kubectl get deployment {DEPLOYMENT} -n {NAMESPACE} -o jsonpath='{{.spec.template.spec.containers[0].resources.limits.memory}}'"
     )
     results["memory_preserved"] = memory == "128Mi"
 
-    # Valid timeout (any positive integer + unit)
     timeout_value = run(
-        f"kubectl get configmap {CONFIGMAP} -n {NAMESPACE} "
-        "-o jsonpath='{.data.ssl-session-timeout}'"
-    )
-    results["valid_timeout"] = bool(
-        re.match(r"^[1-9][0-9]*(s|m|h|d|w|M|y)$", timeout_value)
+        f"kubectl get configmap {CONFIGMAP} -n {NAMESPACE} -o jsonpath='{{.data.ssl-session-timeout}}'"
     )
 
-    # Deployment Available
+    # Accept integer + unit (nginx duration format)
+    results["valid_timeout"] = bool(
+        re.fullmatch(r"[1-9][0-9]*(s|m|h|d|w|M|y)", timeout_value)
+    )
+
     available = run(
         f"kubectl get deployment {DEPLOYMENT} -n {NAMESPACE} "
         "-o jsonpath='{.status.conditions[?(@.type==\"Available\")].status}'"
     )
     results["deployment_available"] = available == "True"
 
-    # HTTP test with proper port-forward cleanup
     pf = subprocess.Popen(
         f"kubectl port-forward svc/{DEPLOYMENT} 18080:80 -n {NAMESPACE}",
         shell=True,
@@ -94,7 +86,6 @@ try:
 except Exception as e:
     results["error"] = str(e)
 
-# Strict scoring: ALL must pass
 score = 1.0 if all(results.values()) else 0.0
 
 print(json.dumps({

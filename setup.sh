@@ -1,11 +1,23 @@
 #!/bin/bash
+# ============================================================
+# Setup Script
+# Initializes Kubernetes resources for TLS session timeout task.
+#
+# Creates:
+#   - Namespace ingress-system
+#   - ConfigMap ingress-nginx-config (with invalid value "0")
+#   - Service ingress-controller
+#   - Deployment ingress-controller (nginx:1.25.3, 128Mi)
+#
+# Stores original Deployment UID in /grader/original_uid
+# ============================================================
+
 set -e
 
 NAMESPACE="ingress-system"
 
 kubectl create namespace $NAMESPACE || true
 
-# Create broken ConfigMap
 cat <<EOF | kubectl apply -f -
 apiVersion: v1
 kind: ConfigMap
@@ -16,7 +28,6 @@ data:
   ssl-session-timeout: "0"
 EOF
 
-# Create Service
 cat <<EOF | kubectl apply -f -
 apiVersion: v1
 kind: Service
@@ -31,7 +42,6 @@ spec:
       targetPort: 80
 EOF
 
-# Create Deployment
 cat <<EOF | kubectl apply -f -
 apiVersion: apps/v1
 kind: Deployment
@@ -67,6 +77,5 @@ EOF
 
 kubectl rollout status deployment/ingress-controller -n $NAMESPACE --timeout=120s
 
-# Store original UID safely
 mkdir -p /grader
 kubectl get deployment ingress-controller -n $NAMESPACE -o jsonpath='{.metadata.uid}' > /grader/original_uid

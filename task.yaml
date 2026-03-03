@@ -1,26 +1,49 @@
+# ============================================================
+# Task: Ingress Controller TLS Session Timeout Fix
+# Description:
+#   Fix invalid ssl-session-timeout configuration in a Kubernetes
+#   nginx-based ingress controller Deployment.
+#
+#   The Deployment uses:
+#     - Image: nginx:1.25.3
+#     - Memory limit: 128Mi
+#
+#   These MUST remain unchanged.
+#
+#   The Deployment exposes HTTP on port 80.
+#   The grader validates HTTP 200 response.
+#
+# ============================================================
+
 id: ingress-controller-tls-termination
-title: Ingress Controller TLS Session Timeout Fix
+title: Fix TLS Session Timeout in Nginx Ingress Deployment
 difficulty: hard
 
 prompt: |
-  The ingress controller currently has ssl-session-timeout set to "0",
-  which disables TLS session expiration.
+  The nginx-based ingress controller Deployment in namespace
+  `ingress-system` currently has `ssl-session-timeout` set to "0"
+  inside the ConfigMap `ingress-nginx-config`.
 
-  Your task is to update the ConfigMap named `ingress-nginx-config`
-  in namespace `ingress-system`.
+  This disables TLS session expiration and must be corrected.
 
-  Set `ssl-session-timeout` to a valid non-zero nginx duration
-  (for example: 10m, 1h, 30s).
+  Update the ConfigMap so that:
 
-  IMPORTANT:
+    ssl-session-timeout is a valid, non-zero nginx duration
+    (examples: 10m, 1h, 30s)
+
+  Important Constraints:
+
   - Do NOT delete or recreate the Deployment.
-  - Preserve the Deployment UID.
-  - Preserve container image (nginx:1.25.3).
-  - Preserve memory limit (128Mi).
-  - The pod may need to restart for changes to take effect.
+  - Preserve Deployment UID.
+  - Preserve container image: nginx:1.25.3
+  - Preserve memory limit: 128Mi
+  - Ensure the Deployment remains Available.
+  - The HTTP endpoint exposed on port 80 must return 200.
 
 success_criteria:
-  - ConfigMap contains a valid non-zero duration value
-  - Deployment remains available
-  - Nginx serves HTTP 200
+  - ConfigMap contains valid non-zero duration
+  - Deployment remains Available
+  - HTTP returns 200
   - Deployment UID unchanged
+  - Image preserved (nginx:1.25.3)
+  - Memory limit preserved (128Mi)

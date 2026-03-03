@@ -1,4 +1,9 @@
 #!/bin/bash
+# ============================================================
+# Reference Solution
+# Fixes ssl-session-timeout while preserving Deployment integrity.
+# ============================================================
+
 set -e
 
 NAMESPACE="ingress-system"
@@ -10,7 +15,7 @@ kubectl patch configmap $CONFIGMAP \
   --type merge \
   -p '{"data":{"ssl-session-timeout":"10m"}}'
 
-kubectl delete pod -n $NAMESPACE -l app=ingress-controller
+kubectl rollout restart deployment/$DEPLOYMENT -n $NAMESPACE
 
 kubectl rollout status deployment/$DEPLOYMENT \
   -n $NAMESPACE \
