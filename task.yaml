@@ -1,61 +1,24 @@
 id: ingress-controller-tls-termination
-
-title: Fix TLS Session Timeout Misconfiguration in Ingress Controller
-
+title: Ingress Controller TLS Termination
 difficulty: hard
 
-description: |
-  A Kubernetes ingress controller is experiencing instability due to an
-  incorrect TLS session cache configuration.
+prompt: |
+  The ingress controller currently has ssl-session-timeout set to "0",
+  which disables TLS session expiration.
 
-  The ConfigMap `ingress-nginx-config` contains the setting:
+  Update the ConfigMap named `ingress-nginx-config`
+  in namespace `ingress-system`.
 
-      ssl-session-timeout: "0"
+  Set `ssl-session-timeout` to a valid non-zero nginx duration
+  (e.g., 10m, 1h, 30s).
 
-  A timeout value of "0" disables session expiration, allowing TLS sessions
-  to accumulate indefinitely and causing memory growth over time.
-
-  Your task is to correct this configuration safely without disrupting
-  the existing Deployment.
-
-environment:
-  namespace: ingress-system
-  deployment: ingress-controller
-  configmap: ingress-nginx-config
-
-objectives:
-  - Update the ConfigMap `ingress-nginx-config`.
-  - Set `ssl-session-timeout` to a valid non-zero nginx duration.
-
-constraints:
+  Constraints:
   - Do NOT delete or recreate the Deployment.
-  - The Deployment UID must remain unchanged.
-  - The container image must remain `nginx:1.25.3`.
-  - The memory limit must remain exactly `128Mi`.
+  - Preserve the Deployment UID.
+  - Preserve container image (nginx:1.25.3).
+  - Preserve memory limit (128Mi).
 
 success_criteria:
-  - Deployment becomes Ready.
-  - nginx serves HTTP 200 responses.
-  - Container restart count remains stable.
-  - ssl-session-timeout is a valid non-zero nginx duration.
-
-notes: |
-  Valid nginx duration examples include:
-
-      10s
-      5m
-      1h
-      1d
-
-  Format:
-
-      <positive_integer><unit>
-
-  Supported units:
-      s = seconds
-      m = minutes
-      h = hours
-      d = days
-      w = weeks
-      M = months
-      y = years
+  - Deployment remains ready
+  - Nginx serves HTTP 200
+  - Restart count remains stable

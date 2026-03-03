@@ -1,89 +1,47 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/bin/bash
+set -e
 
-NS="ingress-system"
+NAMESPACE="ingress-system"
 
 echo "Creating namespace..."
-kubectl get ns $NS >/dev/null 2>&1 || kubectl create namespace $NS
+kubectl create namespace $NAMESPACE || true
 
-############################################
-# RBAC
-############################################
-echo "Granting ubuntu-user access..."
-
-kubectl apply -f - <<EOF
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: ubuntu-user-admin
-  namespace: ${NS}
-rules:
-- apiGroups: [""]
-  resources: ["configmaps","pods","services"]
-  verbs: ["get","list","watch","create","update","patch","delete"]
-- apiGroups: ["apps"]
-  resources: ["deployments","replicasets"]
-  verbs: ["get","list","watch","create","update","patch","delete"]
-EOF
-
-kubectl apply -f - <<EOF
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: ubuntu-user-admin-binding
-  namespace: ${NS}
-subjects:
-- kind: ServiceAccount
-  name: ubuntu-user
-  namespace: default
-roleRef:
-  kind: Role
-  name: ubuntu-user-admin
-  apiGroup: rbac.authorization.k8s.io
-EOF
-
-############################################
-# Broken ConfigMap
-############################################
 echo "Creating broken ConfigMap..."
 
-kubectl apply -n $NS -f - <<EOF
+cat <<EOF | kubectl apply -f -
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: ingress-nginx-config
+  namespace: ingress-system
 data:
   ssl-session-timeout: "0"
 EOF
 
-############################################
-# Service
-############################################
-echo "Creating service..."
+echo "Creating Service..."
 
-kubectl apply -n $NS -f - <<EOF
+cat <<EOF | kubectl apply -f -
 apiVersion: v1
 kind: Service
 metadata:
   name: ingress-controller
+  namespace: ingress-system
 spec:
   selector:
     app: ingress-controller
   ports:
-  - port: 80
-    targetPort: 80
+    - port: 80
+      targetPort: 80
 EOF
 
-############################################
-# Deployment
-############################################
-echo "Creating deployment..."
+echo "Creating Deployment..."
 
-kubectl apply -n $NS -f - <<EOF
+cat <<EOF | kubectl apply -f -
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: ingress-controller
+  namespace: ingress-system
 spec:
   replicas: 1
   selector:
@@ -95,42 +53,26 @@ spec:
         app: ingress-controller
     spec:
       containers:
-      - name: nginx
-        image: nginx:1.25.3
-        imagePullPolicy: IfNotPresent
-        ports:
-        - containerPort: 80
-        resources:
-          limits:
-            memory: "128Mi"
+        - name: nginx
+          image: nginx:1.25.3
+          ports:
+            - containerPort: 80
+          resources:
+            limits:
+              memory: "128Mi"
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/conf.d
+      volumes:
+        - name: nginx-config
+          configMap:
+            name: ingress-nginx-config
 EOF
 
-############################################
-# WAIT FOR POD RUNNING
-############################################
-echo "Waiting for pod to reach Running state..."
+echo "Waiting for deployment rollout..."
+kubectl rollout status deployment/ingress-controller -n $NAMESPACE --timeout=120s
 
-for i in {1..60}; do
-  STATUS=$(kubectl get pods -n $NS -l app=ingress-controller \
-    -o jsonpath='{.items[0].status.phase}' 2>/dev/null || echo "")
-
-  if [[ "$STATUS" == "Running" ]]; then
-    echo "Pod is running."
-    break
-  fi
-
-  sleep 2
-done
-
-############################################
-# SAVE ORIGINAL UID
-############################################
 echo "Saving original UID..."
+kubectl get deployment ingress-controller -n $NAMESPACE -o jsonpath='{.metadata.uid}' > /grader/original_uid
 
-mkdir -p /grader
-
-kubectl get deployment ingress-controller \
-  -n $NS \
-  -o jsonpath='{.metadata.uid}' > /grader/original_uid
-
-echo "✅ Setup complete."
+echo "Setup complete."
