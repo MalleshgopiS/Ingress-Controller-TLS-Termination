@@ -1,6 +1,6 @@
 """
 ==========================================================
-Nebula Hard++ Grader (Final Production Version)
+Nebula Hard++ Grader (Quality-Compliant Final)
 ==========================================================
 
 Validates:
@@ -14,6 +14,10 @@ Validates:
 - All replicas Ready
 - HTTP 200 served
 - Restart counts stable
+
+Scoring:
+- All checks must pass.
+- If any check fails → score = 0.0
 ==========================================================
 """
 
@@ -21,31 +25,31 @@ import subprocess
 import time
 import re
 import json
-import sys
+
 
 NS = "ingress-system"
 DEPLOYMENT = "ingress-controller"
 CONFIGMAP = "ingress-nginx-config"
-
-CURL_IMAGE = "curlimages/curl:8.5.0"  # pinned
+CURL_IMAGE = "curlimages/curl:8.5.0"
 
 
 def run(cmd):
     result = subprocess.run(cmd, shell=True, text=True, capture_output=True)
     if result.returncode != 0:
-        print(f"Command failed: {cmd}")
-        print(result.stderr)
-        sys.exit(1)
+        return None
     return result.stdout.strip()
 
 
 def uid_preserved():
-    original = open("/grader/original_uid").read().strip()
-    current = run(
-        f"kubectl get deployment {DEPLOYMENT} -n {NS} "
-        "-o jsonpath='{.metadata.uid}'"
-    )
-    return original == current
+    try:
+        original = open("/grader/original_uid").read().strip()
+        current = run(
+            f"kubectl get deployment {DEPLOYMENT} -n {NS} "
+            "-o jsonpath='{.metadata.uid}'"
+        )
+        return current == original
+    except:
+        return False
 
 
 def replicas_preserved():
@@ -84,6 +88,8 @@ def get_config():
 
 
 def valid_timeout(conf):
+    if not conf:
+        return False
     match = re.search(r"ssl_session_timeout\s+([^\s;]+);", conf)
     if not match:
         return False
@@ -91,40 +97,46 @@ def valid_timeout(conf):
 
 
 def structure_preserved(conf):
-    # Ensure important base nginx directives still exist
-    required_lines = [
-        "worker_processes",
-        "events",
-        "http",
-        "include       /etc/nginx/mime.types",
-        "server {",
-        "location /",
+    if not conf:
+        return False
+
+    required_patterns = [
+        r"\bworker_processes\b",
+        r"\bevents\s*{",
+        r"\bhttp\s*{",
+        r"include\s+/etc/nginx/mime\.types;",
+        r"\bserver\s*{",
+        r"\blocation\s+/\s*{",
     ]
-    return all(line in conf for line in required_lines)
+
+    return all(re.search(p, conf) for p in required_patterns)
 
 
 def all_ready():
-    ready = run(
+    return run(
         f"kubectl get deployment {DEPLOYMENT} -n {NS} "
         "-o jsonpath='{.status.readyReplicas}'"
-    )
-    return ready == "3"
+    ) == "3"
 
 
 def http_200():
     output = run(
         f"kubectl run curl-test --rm -i --restart=Never "
         f"--image={CURL_IMAGE} -n {NS} "
-        f"-- curl -s http://ingress-controller"
+        f"-- curl -s -o /dev/null -w '%{{http_code}}' http://ingress-controller"
     )
-    return "OK" in output
+    return output == "200"
 
 
 def restart_stable():
-    pods = run(
+    pods_raw = run(
         f"kubectl get pods -l app=ingress-controller -n {NS} "
         "-o jsonpath='{.items[*].metadata.name}'"
-    ).split()
+    )
+    if not pods_raw:
+        return False
+
+    pods = pods_raw.split()
 
     before = [
         run(
@@ -162,10 +174,11 @@ results = {
     "restart_stable": restart_stable(),
 }
 
-score = sum(results.values()) / len(results)
+all_passed = all(results.values())
+score = 1.0 if all_passed else 0.0
 
 print(json.dumps({
     "score": score,
     "subscores": results,
-    "feedback": f"{sum(results.values())}/{len(results)} checks passed."
+    "feedback": "All checks passed." if all_passed else "One or more checks failed."
 }))
