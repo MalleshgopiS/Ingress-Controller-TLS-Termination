@@ -1,24 +1,26 @@
 id: ingress-controller-tls-termination
-title: Ingress Controller TLS Termination
+title: Ingress Controller TLS Session Timeout Fix
 difficulty: hard
 
 prompt: |
   The ingress controller currently has ssl-session-timeout set to "0",
   which disables TLS session expiration.
 
-  Update the ConfigMap named `ingress-nginx-config`
+  Your task is to update the ConfigMap named `ingress-nginx-config`
   in namespace `ingress-system`.
 
   Set `ssl-session-timeout` to a valid non-zero nginx duration
-  (e.g., 10m, 1h, 30s).
+  (for example: 10m, 1h, 30s).
 
-  Constraints:
+  IMPORTANT:
   - Do NOT delete or recreate the Deployment.
   - Preserve the Deployment UID.
   - Preserve container image (nginx:1.25.3).
   - Preserve memory limit (128Mi).
+  - The pod may need to restart for changes to take effect.
 
 success_criteria:
-  - Deployment remains ready
+  - ConfigMap contains a valid non-zero duration value
+  - Deployment remains available
   - Nginx serves HTTP 200
-  - Restart count remains stable
+  - Deployment UID unchanged

@@ -3,11 +3,9 @@ set -e
 
 NAMESPACE="ingress-system"
 
-echo "Creating namespace..."
 kubectl create namespace $NAMESPACE || true
 
-echo "Creating broken ConfigMap..."
-
+# Create broken ConfigMap
 cat <<EOF | kubectl apply -f -
 apiVersion: v1
 kind: ConfigMap
@@ -18,8 +16,7 @@ data:
   ssl-session-timeout: "0"
 EOF
 
-echo "Creating Service..."
-
+# Create Service
 cat <<EOF | kubectl apply -f -
 apiVersion: v1
 kind: Service
@@ -34,8 +31,7 @@ spec:
       targetPort: 80
 EOF
 
-echo "Creating Deployment..."
-
+# Create Deployment
 cat <<EOF | kubectl apply -f -
 apiVersion: apps/v1
 kind: Deployment
@@ -69,10 +65,8 @@ spec:
             name: ingress-nginx-config
 EOF
 
-echo "Waiting for deployment rollout..."
 kubectl rollout status deployment/ingress-controller -n $NAMESPACE --timeout=120s
 
-echo "Saving original UID..."
+# Store original UID safely
+mkdir -p /grader
 kubectl get deployment ingress-controller -n $NAMESPACE -o jsonpath='{.metadata.uid}' > /grader/original_uid
-
-echo "Setup complete."
