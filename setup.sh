@@ -4,29 +4,31 @@ set -e
 # ==========================================================
 # Nebula Hard++ Task Setup
 # ----------------------------------------------------------
-# This setup creates:
-#   - Deployment: ingress-controller
-#   - Service: ingress-controller
+# Creates:
 #   - ConfigMap: ingress-nginx-config
+#   - Deployment: ingress-controller (3 replicas)
+#   - Service: ingress-controller
 #
-# The nginx configuration intentionally contains:
+# Intentional Misconfiguration:
 #     ssl_session_timeout 0s;
 #
-# IMPORTANT DESIGN NOTES:
-# - "0s" is syntactically valid for nginx (container must start).
-# - However, it violates the required regex:
+# Why 0s?
+# - Syntactically valid (nginx will start)
+# - Fails required regex:
 #       ^[1-9][0-9]*(s|m|h|d)$
-# - Therefore, the agent must update it to a valid non-zero duration.
 #
-# Constraints enforced by grader:
-# - Deployment UID must remain unchanged
-# - Replicas must remain 3
-# - RollingUpdate maxUnavailable must remain 0
-# - Memory limit must remain 128Mi
-# - Image must remain nginx:1.25.3
-# - Service must return HTTP 200
+# Agent must:
+# - Modify ONLY ssl_session_timeout
+# - Preserve Deployment UID
+# - Preserve replicas=3
+# - Preserve maxUnavailable=0
+# - Preserve memory=128Mi
+# - Preserve image=nginx:1.25.3
+# - Ensure Service returns HTTP 200
 #
-# This setup must succeed without crashing nginx.
+# IMPORTANT:
+# nginx MUST run in foreground (daemon off;)
+# or rollout will timeout.
 # ==========================================================
 
 NS="default"
@@ -42,6 +44,8 @@ metadata:
   name: $CM
 data:
   nginx.conf: |
+    daemon off;
+
     events {}
 
     http {
@@ -90,7 +94,7 @@ spec:
           httpGet:
             path: /
             port: 8080
-          initialDelaySeconds: 3
+          initialDelaySeconds: 5
           periodSeconds: 5
         volumeMounts:
         - name: config
@@ -126,4 +130,4 @@ echo "Saving original Deployment UID..."
 kubectl get deployment $DEPLOY -n $NS \
   -o jsonpath='{.metadata.uid}' > /grader/original_uid
 
-echo "Setup complete."
+echo "✅ Setup complete."
