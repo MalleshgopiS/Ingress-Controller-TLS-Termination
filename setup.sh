@@ -9,26 +9,31 @@ set -e
 #   - Service: ingress-controller
 #   - ConfigMap: ingress-nginx-config
 #
-# The nginx config intentionally contains:
+# The nginx configuration intentionally contains:
 #     ssl_session_timeout 0s;
 #
-# NOTE:
-# - 0s is syntactically valid (nginx must start successfully)
-# - BUT it violates the required regex:
+# IMPORTANT DESIGN NOTES:
+# - "0s" is syntactically valid for nginx (container must start).
+# - However, it violates the required regex:
 #       ^[1-9][0-9]*(s|m|h|d)$
-# - Therefore the agent must update it to a valid non-zero duration.
+# - Therefore, the agent must update it to a valid non-zero duration.
 #
-# IMPORTANT:
+# Constraints enforced by grader:
 # - Deployment UID must remain unchanged
-# - Replicas = 3
-# - maxUnavailable = 0
-# - Memory = 128Mi
-# - Image = nginx:1.25.3
+# - Replicas must remain 3
+# - RollingUpdate maxUnavailable must remain 0
+# - Memory limit must remain 128Mi
+# - Image must remain nginx:1.25.3
+# - Service must return HTTP 200
+#
+# This setup must succeed without crashing nginx.
 # ==========================================================
 
 NS="default"
 DEPLOY="ingress-controller"
 CM="ingress-nginx-config"
+
+echo "Creating ConfigMap..."
 
 kubectl apply -n $NS -f - <<EOF
 apiVersion: v1
@@ -36,15 +41,23 @@ kind: ConfigMap
 metadata:
   name: $CM
 data:
-  custom.conf: |
-    server {
-        listen 8080;
+  nginx.conf: |
+    events {}
+
+    http {
         ssl_session_timeout 0s;
-        location / {
-            return 200 "healthy";
+
+        server {
+            listen 8080;
+
+            location / {
+                return 200 "healthy";
+            }
         }
     }
 EOF
+
+echo "Creating Deployment..."
 
 kubectl apply -n $NS -f - <<EOF
 apiVersion: apps/v1
@@ -77,17 +90,19 @@ spec:
           httpGet:
             path: /
             port: 8080
-          initialDelaySeconds: 2
-          periodSeconds: 3
+          initialDelaySeconds: 3
+          periodSeconds: 5
         volumeMounts:
         - name: config
-          mountPath: /etc/nginx/conf.d/custom.conf
-          subPath: custom.conf
+          mountPath: /etc/nginx/nginx.conf
+          subPath: nginx.conf
       volumes:
       - name: config
         configMap:
           name: $CM
 EOF
+
+echo "Creating Service..."
 
 kubectl apply -n $NS -f - <<EOF
 apiVersion: v1
@@ -102,7 +117,13 @@ spec:
     targetPort: 8080
 EOF
 
+echo "Waiting for rollout..."
+
 kubectl rollout status deployment/$DEPLOY -n $NS --timeout=300s
+
+echo "Saving original Deployment UID..."
 
 kubectl get deployment $DEPLOY -n $NS \
   -o jsonpath='{.metadata.uid}' > /grader/original_uid
+
+echo "Setup complete."
