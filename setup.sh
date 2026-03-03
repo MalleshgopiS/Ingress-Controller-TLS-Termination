@@ -1,7 +1,8 @@
 #!/bin/bash
 # ============================================================
 # setup.sh
-# Creates initial Kubernetes state safely in default namespace
+# Creates initial Kubernetes state (Nebula compatible)
+# DO NOT block on rollout
 # ============================================================
 
 set -e
@@ -10,13 +11,11 @@ NAMESPACE="default"
 DEPLOYMENT="ingress-controller"
 CONFIGMAP="ingress-nginx-config"
 
-# Create ConfigMap with invalid timeout
 kubectl create configmap $CONFIGMAP \
   -n $NAMESPACE \
   --from-literal=ssl-session-timeout="0" \
   --dry-run=client -o yaml | kubectl apply -f -
 
-# Create Deployment
 cat <<EOF | kubectl apply -f -
 apiVersion: apps/v1
 kind: Deployment
@@ -45,7 +44,6 @@ spec:
             memory: "128Mi"
 EOF
 
-# Create Service
 cat <<EOF | kubectl apply -f -
 apiVersion: v1
 kind: Service
@@ -60,13 +58,11 @@ spec:
     targetPort: 80
 EOF
 
-# Wait for Deployment to be ready
-kubectl rollout status deployment/$DEPLOYMENT -n $NAMESPACE --timeout=180s
-
-# Secure grader directory
+# Create secure grader directory
 mkdir -p /grader
 chmod 700 /grader
 
+# Capture original UID immediately (do not wait for availability)
 kubectl get deployment $DEPLOYMENT -n $NAMESPACE \
   -o jsonpath='{.metadata.uid}' > /grader/original_uid
 
