@@ -1,14 +1,12 @@
 #!/bin/bash
 # ============================================================
 # solution.sh
-#
-# Updates ConfigMap with valid nginx duration.
-# Does NOT restart or recreate Deployment.
+# Fix invalid ssl-session-timeout without recreating deployment
 # ============================================================
 
 set -e
 
-NAMESPACE="ingress-system"
+NAMESPACE="default"
 CONFIGMAP="ingress-nginx-config"
 
 kubectl patch configmap $CONFIGMAP \

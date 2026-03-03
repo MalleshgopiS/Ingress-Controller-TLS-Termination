@@ -5,7 +5,7 @@
 #
 # Scenario:
 #   A Deployment named `ingress-controller` exists in
-#   namespace `ingress-system`.
+#   namespace `default`.
 #
 #   A ConfigMap named `ingress-nginx-config` contains:
 #
@@ -27,7 +27,7 @@
 #   - Service `ingress-controller` must return HTTP 200
 #
 # Resources:
-#   Namespace: ingress-system
+#   Namespace: default
 #   Deployment: ingress-controller
 #   Service: ingress-controller
 #   ConfigMap: ingress-nginx-config
@@ -40,7 +40,7 @@ difficulty: medium
 
 description: |
   The Deployment `ingress-controller` in namespace
-  `ingress-system` depends on a ConfigMap named
+  `default` depends on a ConfigMap named
   `ingress-nginx-config`.
 
   The ConfigMap currently contains:
@@ -72,3 +72,10 @@ success_criteria:
   - Memory limit remains 128Mi.
   - Deployment Available.
   - HTTP 200 response confirmed.
+
+tags:
+  - kubernetes
+  - configmap
+  - deployment
+  - nginx
+  - debugging

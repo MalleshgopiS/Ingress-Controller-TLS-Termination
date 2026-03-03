@@ -1,11 +1,10 @@
 # ============================================================
 # grader.py
-#
 # Validates:
 # 1. UID preserved
 # 2. Image preserved
 # 3. Memory preserved
-# 4. Valid timeout
+# 4. Valid timeout format
 # 5. Deployment Available
 # 6. HTTP returns 200
 # ============================================================
@@ -13,9 +12,8 @@
 import subprocess
 import re
 import time
-import sys
 
-NAMESPACE = "ingress-system"
+NAMESPACE = "default"
 DEPLOYMENT = "ingress-controller"
 CONFIGMAP = "ingress-nginx-config"
 
@@ -45,57 +43,62 @@ def wait_for_http():
         pf.terminate()
 
 def grade():
-    results = {}
-
     try:
         original_uid = open("/grader/original_uid").read().strip()
+
         current_uid = run(
             f"kubectl get deployment {DEPLOYMENT} -n {NAMESPACE} "
             "-o jsonpath='{.metadata.uid}'"
         ).strip("'")
 
-        results["uid_preserved"] = original_uid == current_uid
+        if original_uid != current_uid:
+            print(0.0)
+            return
 
         image = run(
             f"kubectl get deployment {DEPLOYMENT} -n {NAMESPACE} "
             "-o jsonpath='{.spec.template.spec.containers[0].image}'"
         ).strip("'")
 
-        results["image_preserved"] = image == "nginx:1.25.3"
+        if image != "nginx:1.25.3":
+            print(0.0)
+            return
 
         memory = run(
             f"kubectl get deployment {DEPLOYMENT} -n {NAMESPACE} "
             "-o jsonpath='{.spec.template.spec.containers[0].resources.limits.memory}'"
         ).strip("'")
 
-        results["memory_preserved"] = memory == "128Mi"
+        if memory != "128Mi":
+            print(0.0)
+            return
 
         timeout = run(
             f"kubectl get configmap {CONFIGMAP} -n {NAMESPACE} "
             "-o jsonpath='{{.data.ssl-session-timeout}}'"
         ).strip("'")
 
-        results["valid_timeout"] = bool(
-            re.fullmatch(r"[1-9][0-9]*(s|m|h|d|w|M|y)", timeout)
-        )
+        if not re.fullmatch(r"[1-9][0-9]*(s|m|h|d|w|M|y)", timeout):
+            print(0.0)
+            return
 
         available = run(
             f"kubectl get deployment {DEPLOYMENT} -n {NAMESPACE} "
             "-o jsonpath='{.status.availableReplicas}'"
         ).strip("'")
 
-        results["deployment_available"] = available == "1"
+        if available != "1":
+            print(0.0)
+            return
 
-        results["nginx_serving"] = wait_for_http()
+        if not wait_for_http():
+            print(0.0)
+            return
 
-        success = all(results.values())
-        score = 1.0 if success else 0.0
+        print(1.0)
 
     except Exception:
-        score = 0.0
-
-    print(score)
-    sys.exit(0)
+        print(0.0)
 
 if __name__ == "__main__":
     grade()

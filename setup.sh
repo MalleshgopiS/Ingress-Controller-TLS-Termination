@@ -1,24 +1,22 @@
 #!/bin/bash
 # ============================================================
 # setup.sh
-#
-# Creates namespace, ConfigMap, Deployment, and Service.
-# Captures original Deployment UID in protected location.
+# Creates initial Kubernetes state safely in default namespace
 # ============================================================
 
 set -e
 
-NAMESPACE="ingress-system"
+NAMESPACE="default"
 DEPLOYMENT="ingress-controller"
 CONFIGMAP="ingress-nginx-config"
 
-kubectl create namespace $NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
-
+# Create ConfigMap with invalid timeout
 kubectl create configmap $CONFIGMAP \
   -n $NAMESPACE \
   --from-literal=ssl-session-timeout="0" \
   --dry-run=client -o yaml | kubectl apply -f -
 
+# Create Deployment
 cat <<EOF | kubectl apply -f -
 apiVersion: apps/v1
 kind: Deployment
@@ -47,6 +45,7 @@ spec:
             memory: "128Mi"
 EOF
 
+# Create Service
 cat <<EOF | kubectl apply -f -
 apiVersion: v1
 kind: Service
@@ -61,7 +60,8 @@ spec:
     targetPort: 80
 EOF
 
-kubectl rollout status deployment/$DEPLOYMENT -n $NAMESPACE --timeout=120s
+# Wait for Deployment to be ready
+kubectl rollout status deployment/$DEPLOYMENT -n $NAMESPACE --timeout=180s
 
 # Secure grader directory
 mkdir -p /grader
