@@ -1,53 +1,58 @@
 #!/bin/bash
 # ============================================================
-# Setup Script
-# Initializes Kubernetes resources for TLS session timeout task.
+# setup.sh
 #
-# Creates:
-#   - Namespace ingress-system
-#   - ConfigMap ingress-nginx-config (with invalid value "0")
-#   - Service ingress-controller
-#   - Deployment ingress-controller (nginx:1.25.3, 128Mi)
+# Task: Ingress-Controller-TLS-Termination
 #
-# Stores original Deployment UID in /grader/original_uid
+# Purpose:
+#   - Prepare Kubernetes environment for evaluation
+#   - Create namespace, ConfigMap, Deployment, and Service
+#   - Ensure Deployment becomes Available
+#   - Store original Deployment UID for grader validation
+#
+# Requirements:
+#   - Deployment image must be: nginx:1.25.3
+#   - Memory limit must be: 128Mi
+#   - ConfigMap must contain ssl-session-timeout="0"
+#   - Deployment UID must be preserved during solution
+#
+# Notes:
+#   - ConfigMap is intentionally NOT mounted (task focuses on config update,
+#     not nginx config wiring)
+#   - Readiness probe added to guarantee rollout success
+#   - Script is idempotent (safe to re-run)
 # ============================================================
 
-set -e
+set -euo pipefail
 
 NAMESPACE="ingress-system"
+DEPLOYMENT="ingress-controller"
+CONFIGMAP="ingress-nginx-config"
 
-kubectl create namespace $NAMESPACE || true
+echo "🚀 Setting up task environment..."
 
-cat <<EOF | kubectl apply -f -
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: ingress-nginx-config
-  namespace: ingress-system
-data:
-  ssl-session-timeout: "0"
-EOF
+# ------------------------------------------------------------
+# 1️⃣ Create Namespace
+# ------------------------------------------------------------
+kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
 
-cat <<EOF | kubectl apply -f -
-apiVersion: v1
-kind: Service
-metadata:
-  name: ingress-controller
-  namespace: ingress-system
-spec:
-  selector:
-    app: ingress-controller
-  ports:
-    - port: 80
-      targetPort: 80
-EOF
+# ------------------------------------------------------------
+# 2️⃣ Create ConfigMap (invalid initial value)
+# ------------------------------------------------------------
+kubectl create configmap "$CONFIGMAP" \
+  -n "$NAMESPACE" \
+  --from-literal=ssl-session-timeout="0" \
+  --dry-run=client -o yaml | kubectl apply -f -
 
+# ------------------------------------------------------------
+# 3️⃣ Create Deployment
+# ------------------------------------------------------------
 cat <<EOF | kubectl apply -f -
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: ingress-controller
-  namespace: ingress-system
+  name: $DEPLOYMENT
+  namespace: $NAMESPACE
 spec:
   replicas: 1
   selector:
@@ -59,23 +64,57 @@ spec:
         app: ingress-controller
     spec:
       containers:
-        - name: nginx
-          image: nginx:1.25.3
-          ports:
-            - containerPort: 80
-          resources:
-            limits:
-              memory: "128Mi"
-          volumeMounts:
-            - name: nginx-config
-              mountPath: /etc/nginx/conf.d
-      volumes:
-        - name: nginx-config
-          configMap:
-            name: ingress-nginx-config
+      - name: nginx
+        image: nginx:1.25.3
+        ports:
+        - containerPort: 80
+        resources:
+          requests:
+            memory: "128Mi"
+          limits:
+            memory: "128Mi"
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 2
+          periodSeconds: 5
+          failureThreshold: 6
 EOF
 
-kubectl rollout status deployment/ingress-controller -n $NAMESPACE --timeout=120s
+# ------------------------------------------------------------
+# 4️⃣ Create Service
+# ------------------------------------------------------------
+cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: Service
+metadata:
+  name: $DEPLOYMENT
+  namespace: $NAMESPACE
+spec:
+  selector:
+    app: ingress-controller
+  ports:
+    - port: 80
+      targetPort: 80
+EOF
 
+# ------------------------------------------------------------
+# 5️⃣ Wait for Deployment Availability
+# ------------------------------------------------------------
+echo "⏳ Waiting for Deployment rollout..."
+kubectl rollout status deployment/$DEPLOYMENT -n $NAMESPACE --timeout=180s
+
+# Extra safety wait to avoid race condition
+kubectl wait --for=condition=available deployment/$DEPLOYMENT \
+  -n $NAMESPACE --timeout=180s
+
+# ------------------------------------------------------------
+# 6️⃣ Store Original UID for Grader
+# ------------------------------------------------------------
+echo "💾 Storing original Deployment UID..."
 mkdir -p /grader
-kubectl get deployment ingress-controller -n $NAMESPACE -o jsonpath='{.metadata.uid}' > /grader/original_uid
+kubectl get deployment $DEPLOYMENT -n $NAMESPACE \
+  -o jsonpath='{.metadata.uid}' > /grader/original_uid
+
+echo "✅ Setup completed successfully."
