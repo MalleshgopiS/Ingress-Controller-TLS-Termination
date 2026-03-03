@@ -1,49 +1,74 @@
 # ============================================================
+# task.yaml
+#
 # Task: Ingress Controller TLS Session Timeout Fix
-# Description:
-#   Fix invalid ssl-session-timeout configuration in a Kubernetes
-#   nginx-based ingress controller Deployment.
 #
-#   The Deployment uses:
-#     - Image: nginx:1.25.3
-#     - Memory limit: 128Mi
+# Scenario:
+#   A Deployment named `ingress-controller` exists in
+#   namespace `ingress-system`.
 #
-#   These MUST remain unchanged.
+#   A ConfigMap named `ingress-nginx-config` contains:
 #
-#   The Deployment exposes HTTP on port 80.
-#   The grader validates HTTP 200 response.
+#       ssl-session-timeout: "0"
 #
+#   This value is invalid.
+#
+# Objective:
+#   Update the ConfigMap so that:
+#     ssl-session-timeout is a valid, non-zero nginx duration
+#     (examples: 10m, 1h, 30s).
+#
+# Constraints:
+#   - Do NOT delete or recreate the Deployment
+#   - Preserve Deployment UID
+#   - Preserve container image: nginx:1.25.3
+#   - Preserve memory limit: 128Mi
+#   - Deployment must remain Available
+#   - Service `ingress-controller` must return HTTP 200
+#
+# Resources:
+#   Namespace: ingress-system
+#   Deployment: ingress-controller
+#   Service: ingress-controller
+#   ConfigMap: ingress-nginx-config
+#
+# Difficulty: medium
 # ============================================================
 
-id: ingress-controller-tls-termination
-title: Fix TLS Session Timeout in Nginx Ingress Deployment
-difficulty: hard
+name: Ingress-Controller-TLS-Termination
+difficulty: medium
 
-prompt: |
-  The nginx-based ingress controller Deployment in namespace
-  `ingress-system` currently has `ssl-session-timeout` set to "0"
-  inside the ConfigMap `ingress-nginx-config`.
+description: |
+  The Deployment `ingress-controller` in namespace
+  `ingress-system` depends on a ConfigMap named
+  `ingress-nginx-config`.
 
-  This disables TLS session expiration and must be corrected.
+  The ConfigMap currently contains:
 
+      ssl-session-timeout: "0"
+
+  This is not a valid nginx duration.
+
+instructions: |
   Update the ConfigMap so that:
 
-    ssl-session-timeout is a valid, non-zero nginx duration
-    (examples: 10m, 1h, 30s)
+  - `ssl-session-timeout` is set to a valid,
+    non-zero nginx duration (for example: 10m, 1h, 30s).
 
-  Important Constraints:
+  Do NOT:
+  - Delete or recreate the Deployment.
+  - Change the container image.
+  - Modify memory limits.
 
-  - Do NOT delete or recreate the Deployment.
-  - Preserve Deployment UID.
-  - Preserve container image: nginx:1.25.3
-  - Preserve memory limit: 128Mi
-  - Ensure the Deployment remains Available.
-  - The HTTP endpoint exposed on port 80 must return 200.
+  Ensure:
+  - Deployment UID remains unchanged.
+  - Deployment remains Available.
+  - Service continues returning HTTP 200.
 
 success_criteria:
-  - ConfigMap contains valid non-zero duration
-  - Deployment remains Available
-  - HTTP returns 200
-  - Deployment UID unchanged
-  - Image preserved (nginx:1.25.3)
-  - Memory limit preserved (128Mi)
+  - ConfigMap contains valid non-zero nginx duration.
+  - Deployment UID unchanged.
+  - Image remains nginx:1.25.3.
+  - Memory limit remains 128Mi.
+  - Deployment Available.
+  - HTTP 200 response confirmed.
