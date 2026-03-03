@@ -12,6 +12,7 @@
 # Returns:
 #   result.score
 #   result.subscores
+#   result.weights
 # ============================================================
 
 import subprocess
@@ -26,7 +27,8 @@ CONFIGMAP = "ingress-nginx-config"
 class Result:
     def __init__(self, score):
         self.score = score
-        self.subscores = {}   # Required by Apex
+        self.subscores = {}
+        self.weights = {}
 
 
 def run(cmd):
@@ -115,7 +117,7 @@ def grade(task=None):
         if memory != "128Mi":
             return Result(0.0)
 
-        # 4️⃣ Valid timeout
+        # 4️⃣ Timeout valid
         timeout_value = run(
             f"kubectl get configmap {CONFIGMAP} -n {NAMESPACE} "
             "-o jsonpath='{{.data.ssl-session-timeout}}'"
@@ -128,7 +130,7 @@ def grade(task=None):
         if not wait_for_available():
             return Result(0.0)
 
-        # 6️⃣ HTTP returns 200
+        # 6️⃣ HTTP check
         if not wait_for_http():
             return Result(0.0)
 
