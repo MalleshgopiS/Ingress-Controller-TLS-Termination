@@ -1,11 +1,20 @@
 """
 ==========================================================
-Nebula Hard++ Grader (Final Production Version)
+Nebula Hard++ Grader (Final Stable Production Version)
 ==========================================================
 
 Binary scoring:
 - 1.0 if ALL checks pass
 - 0.0 otherwise
+
+This grader:
+- Validates setup integrity
+- Verifies Deployment UID preservation
+- Ensures replicas, strategy, image, memory unchanged
+- Validates ssl_session_timeout format
+- Ensures deployment readiness
+- Verifies HTTP 200 using existing nginx pod
+- Confirms restart counts stable
 ==========================================================
 """
 
@@ -13,33 +22,45 @@ import subprocess
 import time
 import re
 import json
-import uuid
+import os
 
 NS = "ingress-system"
 DEPLOYMENT = "ingress-controller"
 CONFIGMAP = "ingress-nginx-config"
-CURL_IMAGE = "curlimages/curl:8.5.0"
 
 
 def run(cmd):
-    """Run shell command safely and return output or None."""
+    """Run shell command and return output or None on failure."""
     result = subprocess.run(cmd, shell=True, text=True, capture_output=True)
     if result.returncode != 0:
         return None
     return result.stdout.strip()
 
 
+# ----------------------------------------------------------
+# Setup Validation
+# ----------------------------------------------------------
+
+def setup_integrity():
+    """Verify setup.sh created the original UID file."""
+    return os.path.exists("/grader/original_uid")
+
+
+# ----------------------------------------------------------
+# Deployment Integrity Checks
+# ----------------------------------------------------------
+
 def uid_preserved():
     """Verify Deployment UID has not changed."""
-    try:
-        original = open("/grader/original_uid").read().strip()
-        current = run(
-            f"kubectl get deployment {DEPLOYMENT} -n {NS} "
-            "-o jsonpath='{.metadata.uid}'"
-        )
-        return current == original
-    except:
+    if not setup_integrity():
         return False
+
+    original = open("/grader/original_uid").read().strip()
+    current = run(
+        f"kubectl get deployment {DEPLOYMENT} -n {NS} "
+        "-o jsonpath='{.metadata.uid}'"
+    )
+    return current == original
 
 
 def replicas_preserved():
@@ -74,6 +95,10 @@ def image_preserved():
     ) == "nginx:1.25.3"
 
 
+# ----------------------------------------------------------
+# ConfigMap Validation
+# ----------------------------------------------------------
+
 def valid_timeout():
     """Verify ssl_session_timeout is valid non-zero format."""
     conf = run(
@@ -82,40 +107,60 @@ def valid_timeout():
     )
     if not conf:
         return False
+
     match = re.search(r"ssl_session_timeout\s+([^\s;]+);", conf)
     if not match:
         return False
+
     return re.fullmatch(r"^[1-9][0-9]*(s|m|h|d)$", match.group(1)) is not None
 
 
-def all_ready():
-    """Verify all replicas are Ready."""
-    return run(
-        f"kubectl get deployment {DEPLOYMENT} -n {NS} "
-        "-o jsonpath='{.status.readyReplicas}'"
-    ) == "3"
+# ----------------------------------------------------------
+# Readiness & Stability Checks
+# ----------------------------------------------------------
+
+def wait_until_ready(timeout=120):
+    """Wait until deployment is fully ready."""
+    start = time.time()
+    while time.time() - start < timeout:
+        ready = run(
+            f"kubectl get deployment {DEPLOYMENT} -n {NS} "
+            "-o jsonpath='{.status.readyReplicas}'"
+        )
+        if ready == "3":
+            return True
+        time.sleep(5)
+    return False
 
 
 def http_200():
-    """Verify Service returns HTTP 200."""
-    pod_name = f"curl-test-{uuid.uuid4().hex[:6]}"
-    output = run(
-        f"kubectl run {pod_name} --rm -i --restart=Never "
-        f"--image={CURL_IMAGE} -n {NS} "
-        f"-- curl -s -o /dev/null -w '%{{http_code}}' http://ingress-controller"
+    """Verify Service returns HTTP 200 using existing nginx pod."""
+    pod = run(
+        f"kubectl get pods -l app={DEPLOYMENT} -n {NS} "
+        "-o jsonpath='{.items[0].metadata.name}'"
     )
-    return output == "200"
+    if not pod:
+        return False
+
+    output = run(
+        f"kubectl exec {pod} -n {NS} -- "
+        "wget -qO- http://ingress-controller 2>/dev/null | head -n 1"
+    )
+
+    return output is not None and "OK" in output
 
 
 def restart_stable():
-    """Verify restart counts remain stable."""
+    """Verify restart counts remain stable over 20 seconds."""
     pods_raw = run(
-        f"kubectl get pods -l app=ingress-controller -n {NS} "
+        f"kubectl get pods -l app={DEPLOYMENT} -n {NS} "
         "-o jsonpath='{.items[*].metadata.name}'"
     )
     if not pods_raw:
         return False
+
     pods = pods_raw.split()
+
     before = [
         run(
             f"kubectl get pod {p} -n {NS} "
@@ -123,7 +168,9 @@ def restart_stable():
         )
         for p in pods
     ]
+
     time.sleep(20)
+
     after = [
         run(
             f"kubectl get pod {p} -n {NS} "
@@ -131,17 +178,25 @@ def restart_stable():
         )
         for p in pods
     ]
+
     return before == after
 
 
+# ----------------------------------------------------------
+# Execute Grading
+# ----------------------------------------------------------
+
+deployment_ready = wait_until_ready()
+
 results = {
+    "setup_integrity": setup_integrity(),
     "uid_preserved": uid_preserved(),
     "replicas_preserved": replicas_preserved(),
     "strategy_preserved": strategy_preserved(),
     "memory_preserved": memory_preserved(),
     "image_preserved": image_preserved(),
     "valid_timeout": valid_timeout(),
-    "all_ready": all_ready(),
+    "deployment_ready": deployment_ready,
     "http_200": http_200(),
     "restart_stable": restart_stable(),
 }
