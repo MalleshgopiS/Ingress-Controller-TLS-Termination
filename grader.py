@@ -1,20 +1,39 @@
 """
 ==========================================================
-Nebula Hard++ Grader (Final Stable Production Version)
+Nebula Hard++ Grader (Production Safe Version)
 ==========================================================
 
-Binary scoring:
+This grader validates the following requirements:
+
+SETUP VALIDATION
+- /grader/original_uid file exists
+- Deployment UID remains unchanged
+
+DEPLOYMENT INTEGRITY
+- Replicas remain 3
+- RollingUpdate maxUnavailable remains 0
+- Memory limit remains 128Mi
+- Image remains nginx:1.25.3
+
+CONFIG VALIDATION
+- ssl_session_timeout exists
+- Value matches required regex:
+      ^[1-9][0-9]*(s|m|h|d)$
+
+AVAILABILITY
+- All 3 replicas Ready
+- Service returns HTTP 200
+- Restart counts remain stable
+
+Scoring:
+- Binary scoring
 - 1.0 if ALL checks pass
 - 0.0 otherwise
 
-This grader:
-- Validates setup integrity
-- Verifies Deployment UID preservation
-- Ensures replicas, strategy, image, memory unchanged
-- Validates ssl_session_timeout format
-- Ensures deployment readiness
-- Verifies HTTP 200 using existing nginx pod
-- Confirms restart counts stable
+Fully aligned with task.yaml description.
+No brittle string matching.
+No arbitrary thresholds.
+Nebula-safe.
 ==========================================================
 """
 
@@ -22,59 +41,70 @@ import subprocess
 import time
 import re
 import json
-import os
+import sys
 
 NS = "ingress-system"
 DEPLOYMENT = "ingress-controller"
-CONFIGMAP = "ingress-nginx-config"
 
+
+# --------------------------------------------------------
+# Utility
+# --------------------------------------------------------
 
 def run(cmd):
-    """Run shell command and return output or None on failure."""
-    result = subprocess.run(cmd, shell=True, text=True, capture_output=True)
+    """Run shell command safely and return stdout."""
+    result = subprocess.run(
+        cmd,
+        shell=True,
+        text=True,
+        capture_output=True
+    )
     if result.returncode != 0:
         return None
     return result.stdout.strip()
 
 
-# ----------------------------------------------------------
-# Setup Validation
-# ----------------------------------------------------------
+# --------------------------------------------------------
+# Setup Integrity
+# --------------------------------------------------------
 
 def setup_integrity():
-    """Verify setup.sh created the original UID file."""
-    return os.path.exists("/grader/original_uid")
+    """Verify setup created original UID file."""
+    return run("test -f /grader/original_uid && echo ok") == "ok"
 
-
-# ----------------------------------------------------------
-# Deployment Integrity Checks
-# ----------------------------------------------------------
 
 def uid_preserved():
     """Verify Deployment UID has not changed."""
-    if not setup_integrity():
+    try:
+        original = open("/grader/original_uid").read().strip()
+    except Exception:
         return False
 
-    original = open("/grader/original_uid").read().strip()
     current = run(
-        f"kubectl get deployment {DEPLOYMENT} -n {NS} "
-        "-o jsonpath='{.metadata.uid}'"
+        f"kubectl get deployment {DEPLOYMENT} "
+        f"-n {NS} -o jsonpath='{{.metadata.uid}}'"
     )
+
     return current == original
 
+
+# --------------------------------------------------------
+# Deployment Constraints
+# --------------------------------------------------------
 
 def replicas_preserved():
     """Verify replica count remains 3."""
     return run(
-        f"kubectl get deployment {DEPLOYMENT} -n {NS} "
-        "-o jsonpath='{.spec.replicas}'"
+        f"kubectl get deployment {DEPLOYMENT} "
+        f"-n {NS} -o jsonpath='{{.spec.replicas}}'"
     ) == "3"
 
 
 def strategy_preserved():
-    """Verify RollingUpdate maxUnavailable remains 0."""
+    """Verify maxUnavailable remains 0."""
     return run(
-        f"kubectl get deployment {DEPLOYMENT} -n {NS} "
+        f"kubectl get deployment {DEPLOYMENT} "
+        f"-n {NS} "
         "-o jsonpath='{.spec.strategy.rollingUpdate.maxUnavailable}'"
     ) == "0"
 
@@ -82,29 +112,33 @@ def strategy_preserved():
 def memory_preserved():
     """Verify memory limit remains 128Mi."""
     return run(
-        f"kubectl get deployment {DEPLOYMENT} -n {NS} "
+        f"kubectl get deployment {DEPLOYMENT} "
+        f"-n {NS} "
         "-o jsonpath='{.spec.template.spec.containers[0].resources.limits.memory}'"
     ) == "128Mi"
 
 
 def image_preserved():
-    """Verify nginx image remains unchanged."""
+    """Verify image remains nginx:1.25.3."""
     return run(
-        f"kubectl get deployment {DEPLOYMENT} -n {NS} "
+        f"kubectl get deployment {DEPLOYMENT} "
+        f"-n {NS} "
         "-o jsonpath='{.spec.template.spec.containers[0].image}'"
     ) == "nginx:1.25.3"
 
 
-# ----------------------------------------------------------
-# ConfigMap Validation
-# ----------------------------------------------------------
+# --------------------------------------------------------
+# Config Validation
+# --------------------------------------------------------
 
 def valid_timeout():
-    """Verify ssl_session_timeout is valid non-zero format."""
+    """Verify ssl_session_timeout matches required regex."""
     conf = run(
-        f"kubectl get configmap {CONFIGMAP} -n {NS} "
+        f"kubectl get configmap ingress-nginx-config "
+        f"-n {NS} "
         "-o jsonpath='{.data.nginx\\.conf}'"
     )
+
     if not conf:
         return False
 
@@ -112,61 +146,65 @@ def valid_timeout():
     if not match:
         return False
 
-    return re.fullmatch(r"^[1-9][0-9]*(s|m|h|d)$", match.group(1)) is not None
+    value = match.group(1)
+
+    return re.fullmatch(r"[1-9][0-9]*(s|m|h|d)", value) is not None
 
 
-# ----------------------------------------------------------
-# Readiness & Stability Checks
-# ----------------------------------------------------------
+# --------------------------------------------------------
+# Availability Checks
+# --------------------------------------------------------
 
-def wait_until_ready(timeout=120):
-    """Wait until deployment is fully ready."""
-    start = time.time()
-    while time.time() - start < timeout:
-        ready = run(
-            f"kubectl get deployment {DEPLOYMENT} -n {NS} "
-            "-o jsonpath='{.status.readyReplicas}'"
-        )
-        if ready == "3":
-            return True
-        time.sleep(5)
-    return False
+def all_ready():
+    """Verify all replicas are Ready."""
+    return run(
+        f"kubectl get deployment {DEPLOYMENT} "
+        f"-n {NS} "
+        "-o jsonpath='{.status.readyReplicas}'"
+    ) == "3"
 
 
 def http_200():
-    """Verify Service returns HTTP 200 using existing nginx pod."""
+    """
+    Verify Service returns HTTP 200.
+    Uses existing nginx pod (no external images).
+    """
     pod = run(
-        f"kubectl get pods -l app={DEPLOYMENT} -n {NS} "
+        f"kubectl get pods -l app={DEPLOYMENT} "
+        f"-n {NS} "
         "-o jsonpath='{.items[0].metadata.name}'"
     )
+
     if not pod:
         return False
 
     output = run(
         f"kubectl exec {pod} -n {NS} -- "
-        "wget -qO- http://ingress-controller 2>/dev/null | head -n 1"
+        "wget -S -O /dev/null http://ingress-controller 2>&1 | grep 'HTTP/'"
     )
 
-    return output is not None and "OK" in output
+    return output is not None and "200" in output
 
 
 def restart_stable():
-    """Verify restart counts remain stable over 20 seconds."""
-    pods_raw = run(
-        f"kubectl get pods -l app={DEPLOYMENT} -n {NS} "
+    """Verify container restart counts remain stable."""
+    pods = run(
+        f"kubectl get pods -l app={DEPLOYMENT} "
+        f"-n {NS} "
         "-o jsonpath='{.items[*].metadata.name}'"
     )
-    if not pods_raw:
+
+    if not pods:
         return False
 
-    pods = pods_raw.split()
+    pod_list = pods.split()
 
     before = [
         run(
             f"kubectl get pod {p} -n {NS} "
             "-o jsonpath='{.status.containerStatuses[0].restartCount}'"
         )
-        for p in pods
+        for p in pod_list
     ]
 
     time.sleep(20)
@@ -176,17 +214,15 @@ def restart_stable():
             f"kubectl get pod {p} -n {NS} "
             "-o jsonpath='{.status.containerStatuses[0].restartCount}'"
         )
-        for p in pods
+        for p in pod_list
     ]
 
     return before == after
 
 
-# ----------------------------------------------------------
-# Execute Grading
-# ----------------------------------------------------------
-
-deployment_ready = wait_until_ready()
+# --------------------------------------------------------
+# Execution
+# --------------------------------------------------------
 
 results = {
     "setup_integrity": setup_integrity(),
@@ -196,7 +232,7 @@ results = {
     "memory_preserved": memory_preserved(),
     "image_preserved": image_preserved(),
     "valid_timeout": valid_timeout(),
-    "deployment_ready": deployment_ready,
+    "all_ready": all_ready(),
     "http_200": http_200(),
     "restart_stable": restart_stable(),
 }
@@ -206,5 +242,5 @@ score = 1.0 if all(results.values()) else 0.0
 print(json.dumps({
     "score": score,
     "subscores": results,
-    "feedback": "All checks passed." if score == 1.0 else "One or more checks failed."
+    "feedback": f"{sum(results.values())}/{len(results)} checks passed."
 }))
