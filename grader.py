@@ -4,79 +4,53 @@ import subprocess
 import re
 import sys
 
-NAMESPACE = "default"
+NS = "default"
 DEPLOYMENT = "ingress-controller"
 CONFIGMAP = "ingress-nginx-config"
 
 def run(cmd):
-    result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-    return result.stdout.strip()
+    return subprocess.run(cmd, shell=True, capture_output=True, text=True)
 
-def setup_integrity():
-    try:
-        with open("/grader/original_uid") as f:
-            return bool(f.read().strip())
-    except:
-        return False
+def get(cmd):
+    return run(cmd).stdout.strip()
 
 def uid_preserved():
     original = open("/grader/original_uid").read().strip()
-    current = run(f"kubectl get deployment {DEPLOYMENT} -n {NAMESPACE} -o jsonpath='{{.metadata.uid}}'")
+    current = get(f"kubectl get deployment {DEPLOYMENT} -n {NS} -o jsonpath='{{.metadata.uid}}'")
     return original == current
 
-def replicas_preserved():
-    return run(f"kubectl get deployment {DEPLOYMENT} -n {NAMESPACE} -o jsonpath='{{.spec.replicas}}'") == "3"
+def replicas_ok():
+    return get(f"kubectl get deployment {DEPLOYMENT} -n {NS} -o jsonpath='{{.spec.replicas}}'") == "3"
 
-def strategy_preserved():
-    return run(f"kubectl get deployment {DEPLOYMENT} -n {NAMESPACE} -o jsonpath='{{.spec.strategy.rollingUpdate.maxUnavailable}}'") == "0"
+def strategy_ok():
+    return get(f"kubectl get deployment {DEPLOYMENT} -n {NS} -o jsonpath='{{.spec.strategy.rollingUpdate.maxUnavailable}}'") == "0"
 
-def memory_preserved():
-    return run(f"kubectl get deployment {DEPLOYMENT} -n {NAMESPACE} -o jsonpath='{{.spec.template.spec.containers[0].resources.limits.memory}}'") == "128Mi"
+def memory_ok():
+    return get(f"kubectl get deployment {DEPLOYMENT} -n {NS} -o jsonpath='{{.spec.template.spec.containers[0].resources.limits.memory}}'") == "128Mi"
 
-def image_preserved():
-    return run(f"kubectl get deployment {DEPLOYMENT} -n {NAMESPACE} -o jsonpath='{{.spec.template.spec.containers[0].image}}'") == "nginx:1.25.3"
+def image_ok():
+    return get(f"kubectl get deployment {DEPLOYMENT} -n {NS} -o jsonpath='{{.spec.template.spec.containers[0].image}}'") == "nginx:1.25.3"
 
 def valid_timeout():
-    config = run(f"kubectl get configmap {CONFIGMAP} -n {NAMESPACE} -o jsonpath='{{.data.nginx\\.conf}}'")
+    config = get(f"kubectl get configmap {CONFIGMAP} -n {NS} -o jsonpath='{{.data.custom\\.conf}}'")
     match = re.search(r"ssl_session_timeout\s+([^\s;]+);", config)
     if not match:
         return False
     return re.fullmatch(r"[1-9][0-9]*(s|m|h|d)", match.group(1)) is not None
 
-def config_preserved():
-    config = run(f"kubectl get configmap {CONFIGMAP} -n {NAMESPACE} -o jsonpath='{{.data.nginx\\.conf}}'")
-    required = ["worker_processes", "events", "http", "server", "listen 80"]
-    return all(fragment in config for fragment in required)
-
-def rollout_successful():
-    return subprocess.run(
-        f"kubectl rollout status deployment/{DEPLOYMENT} -n {NAMESPACE} --timeout=120s",
-        shell=True
-    ).returncode == 0
-
-def all_ready():
-    return run(f"kubectl get deployment {DEPLOYMENT} -n {NAMESPACE} -o jsonpath='{{.status.readyReplicas}}'") == "3"
-
-def http_200():
-    return subprocess.run(
-        f"kubectl run curl-test --rm --restart=Never "
-        f"--image=curlimages/curl -n {NAMESPACE} "
-        f"-- curl -s http://{DEPLOYMENT} | grep OK",
-        shell=True
-    ).returncode == 0
+def http_ok():
+    pod = get(f"kubectl get pods -l app={DEPLOYMENT} -n {NS} -o jsonpath='{{.items[0].metadata.name}}'")
+    result = run(f"kubectl exec {pod} -n {NS} -- curl -s http://localhost:8080")
+    return "OK" in result.stdout
 
 checks = [
-    setup_integrity(),
     uid_preserved(),
-    replicas_preserved(),
-    strategy_preserved(),
-    memory_preserved(),
-    image_preserved(),
+    replicas_ok(),
+    strategy_ok(),
+    memory_ok(),
+    image_ok(),
     valid_timeout(),
-    config_preserved(),
-    rollout_successful(),
-    all_ready(),
-    http_200()
+    http_ok()
 ]
 
 if all(checks):

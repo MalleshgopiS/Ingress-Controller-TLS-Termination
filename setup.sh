@@ -8,30 +8,22 @@ SERVICE="ingress-controller"
 
 echo "Creating ConfigMap..."
 
-kubectl create configmap ${CONFIGMAP} \
-  --from-literal=nginx.conf='
-worker_processes 1;
-
-events {
-    worker_connections 1024;
-}
-
-http {
-    sendfile on;
-    keepalive_timeout 65;
-
+kubectl apply -n ${NAMESPACE} -f - <<EOF
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${CONFIGMAP}
+data:
+  custom.conf: |
     server {
-        listen 80;
-
+        listen 8080;
         ssl_session_timeout 0m;
 
         location / {
             return 200 "OK";
         }
     }
-}
-' \
-  -n ${NAMESPACE}
+EOF
 
 echo "Creating Service..."
 
@@ -45,7 +37,7 @@ spec:
     app: ${DEPLOYMENT}
   ports:
   - port: 80
-    targetPort: 80
+    targetPort: 8080
 EOF
 
 echo "Creating Deployment..."
@@ -77,11 +69,17 @@ spec:
           limits:
             memory: 128Mi
         ports:
-        - containerPort: 80
+        - containerPort: 8080
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 2
+          periodSeconds: 3
         volumeMounts:
         - name: nginx-config
-          mountPath: /etc/nginx/nginx.conf
-          subPath: nginx.conf
+          mountPath: /etc/nginx/conf.d/custom.conf
+          subPath: custom.conf
       volumes:
       - name: nginx-config
         configMap:
@@ -91,8 +89,6 @@ EOF
 echo "Waiting for rollout..."
 
 kubectl rollout status deployment/${DEPLOYMENT} -n ${NAMESPACE} --timeout=300s
-
-echo "Saving original UID..."
 
 kubectl get deployment ${DEPLOYMENT} -n ${NAMESPACE} \
   -o jsonpath='{.metadata.uid}' > /grader/original_uid

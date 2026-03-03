@@ -4,27 +4,28 @@ difficulty: hard
 category: kubernetes
 
 description: |
-  An nginx Deployment exists in the default namespace.
+  A Deployment named ingress-controller exists in the default namespace.
 
   The nginx configuration is stored in ConfigMap:
     ingress-nginx-config
 
-  The file nginx.conf contains:
+  The configuration file custom.conf contains:
 
       ssl_session_timeout 0m;
 
-  This is invalid and must be changed to a valid non-zero duration.
+  This value is invalid and must be changed to a valid non-zero duration.
 
   Valid format:
       ^[1-9][0-9]*(s|m|h|d)$
 
+  A Service named ingress-controller exposes the Deployment.
+
 requirements:
   - Only modify ssl_session_timeout.
   - Do NOT delete or recreate the Deployment.
-  - UID must remain unchanged.
+  - Deployment UID must remain unchanged.
   - Replicas must remain 3.
   - maxUnavailable must remain 0.
   - Memory must remain 128Mi.
   - Image must remain nginx:1.25.3.
-  - nginx.conf structure must be preserved.
   - Service must return HTTP 200.
