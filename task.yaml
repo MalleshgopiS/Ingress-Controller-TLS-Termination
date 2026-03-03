@@ -1,71 +1,54 @@
 id: ingress-controller-tls-termination-hardpp
-title: Ingress Controller TLS Termination (Hard++)
+title: Ingress Controller TLS Termination Fix (Hard++)
 difficulty: hard
+category: kubernetes
 
 description: |
-  Namespace:
-    ingress-system
+  You are operating a Kubernetes cluster in the default namespace.
 
-  Existing Resources:
-    - Deployment: ingress-controller
-    - ConfigMap: ingress-nginx-config
-    - Service: ingress-controller
+  An nginx-based ingress controller Deployment exists with:
 
-  The Deployment:
-    - Replicas: 3
-    - RollingUpdate:
-        maxUnavailable: 0
-        maxSurge: 1
-    - Image: nginx:1.25.3
-    - Memory limit: 128Mi
+  - 3 replicas
+  - RollingUpdate strategy (maxUnavailable=0)
+  - Memory limit 128Mi
+  - Image nginx:1.25.3
 
-  The ConfigMap contains an nginx.conf file structured like:
+  The nginx configuration is stored in a ConfigMap named:
+    ingress-nginx-config
 
-      events {}
+  The nginx.conf file contains:
 
-      http {
-        server {
-          listen 80;
+      ssl_session_timeout 0m;
 
-          ssl_session_timeout 0m;
+  This value is INVALID and must be changed to a valid non-zero duration.
 
-          location / {
-            return 200 "OK\n";
-          }
-        }
-      }
+  Valid format:
+      ^[1-9][0-9]*(s|m|h|d)$
 
-  Problem:
-    The ssl_session_timeout value is invalid per policy.
-    It is currently set to a zero duration (0m).
-
-  You must change ONLY the ssl_session_timeout value
-  to a valid non-zero nginx duration.
-
-  Valid formats include:
-      10m
-      30s
+  Examples:
+      10s
+      5m
       1h
       2d
 
-  Valid format regex:
-      ^[1-9][0-9]*(s|m|h|d)$
-
-  Constraints:
-    - Do NOT delete or recreate the Deployment
-    - Replicas must remain 3
-    - Do NOT scale replicas
-    - Do NOT modify image (nginx:1.25.3)
-    - Do NOT modify memory limit (128Mi)
-    - Do NOT change RollingUpdate strategy
-    - Do NOT cause downtime
-    - Do NOT overwrite the entire nginx configuration
-    - Only update the ssl_session_timeout value
+requirements:
+  - Only modify ssl_session_timeout value.
+  - Do NOT delete or recreate the Deployment.
+  - Deployment UID must remain unchanged.
+  - Replicas must remain 3.
+  - maxUnavailable must remain 0.
+  - Memory limit must remain 128Mi.
+  - Image must remain nginx:1.25.3.
+  - nginx.conf structure must be preserved.
+  - Service must continue serving HTTP 200.
+  - No downtime during rollout.
 
 success_criteria:
-  - Deployment UID unchanged
-  - 3 replicas Ready
-  - RollingUpdate maxUnavailable remains 0
-  - HTTP 200 served from Service
-  - nginx.conf structure preserved (events/http/server/listen/location)
-  - Valid timeout format applied
+  - Deployment UID unchanged.
+  - 3 replicas Ready.
+  - RollingUpdate maxUnavailable remains 0.
+  - Memory remains 128Mi.
+  - Image remains nginx:1.25.3.
+  - ssl_session_timeout matches regex ^[1-9][0-9]*(s|m|h|d)$.
+  - nginx.conf structure preserved.
+  - HTTP 200 served from Service.
