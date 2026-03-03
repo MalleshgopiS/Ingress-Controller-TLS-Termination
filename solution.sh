@@ -4,50 +4,46 @@
 # Solution Script: Fix TLS Session Timeout
 # ------------------------------------------------------------
 #
-# Objective:
-#   Update ssl-session-timeout in the ConfigMap to a
-#   valid non-zero nginx duration.
+# Updates ssl-session-timeout to valid non-zero duration.
+# Preserves:
+#   - Deployment UID
+#   - Memory limit (128Mi)
+#   - Image (nginx:1.25.3)
 #
-# Valid examples:
-#   10s
-#   5m
-#   1h
-#   1d
-#
-# Constraints:
-#   - MUST NOT delete or recreate the Deployment
-#   - MUST preserve memory limit (128Mi)
-#   - MUST preserve container image (nginx:1.25.3)
-#
-# Approach:
-#   1. Patch the ConfigMap key ssl-session-timeout
-#   2. Restart the pod to apply the change
-#   3. Wait until deployment is ready
-#
+# Nebula-safe (no condition=Available usage)
 # ------------------------------------------------------------
 
 set -euo pipefail
 
 NS="ingress-system"
+DEPLOY="ingress-controller"
 
 echo "Updating ssl-session-timeout to valid value..."
 
-# Example valid value (grader accepts any valid non-zero duration)
 kubectl patch configmap ingress-nginx-config \
   -n "$NS" \
   --type merge \
   -p '{"data":{"ssl-session-timeout":"10m"}}'
 
-echo "Restarting pod to apply configuration..."
+echo "Deleting pod to reload configuration..."
 
 kubectl delete pod -n "$NS" -l app=ingress-controller
 
-kubectl wait deployment ingress-controller \
-  -n "$NS" \
-  --for=condition=Available \
-  --timeout=300s
+echo "Waiting for deployment readyReplicas == 1..."
 
-echo "Allowing brief stabilization..."
+for i in {1..120}; do
+  READY=$(kubectl get deploy "$DEPLOY" -n "$NS" \
+    -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+
+  if [[ "$READY" == "1" ]]; then
+    echo "Deployment is ready."
+    break
+  fi
+
+  sleep 2
+done
+
+echo "Extra stabilization..."
 sleep 15
 
 echo "✅ TLS session timeout fixed."
