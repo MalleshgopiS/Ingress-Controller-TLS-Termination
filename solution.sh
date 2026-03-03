@@ -1,10 +1,10 @@
 #!/bin/bash
+set -e
+
 # ============================================================
 # solution.sh
-# Fix invalid ssl-session-timeout without recreating deployment
+# Fixes invalid ssl-session-timeout
 # ============================================================
-
-set -e
 
 NAMESPACE="default"
 CONFIGMAP="ingress-nginx-config"

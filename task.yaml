@@ -1,81 +1,41 @@
 # ============================================================
 # task.yaml
-#
-# Task: Ingress Controller TLS Session Timeout Fix
-#
-# Scenario:
-#   A Deployment named `ingress-controller` exists in
-#   namespace `default`.
-#
-#   A ConfigMap named `ingress-nginx-config` contains:
-#
-#       ssl-session-timeout: "0"
-#
-#   This value is invalid.
-#
-# Objective:
-#   Update the ConfigMap so that:
-#     ssl-session-timeout is a valid, non-zero nginx duration
-#     (examples: 10m, 1h, 30s).
-#
-# Constraints:
-#   - Do NOT delete or recreate the Deployment
-#   - Preserve Deployment UID
-#   - Preserve container image: nginx:1.25.3
-#   - Preserve memory limit: 128Mi
-#   - Deployment must remain Available
-#   - Service `ingress-controller` must return HTTP 200
-#
-# Resources:
-#   Namespace: default
-#   Deployment: ingress-controller
-#   Service: ingress-controller
-#   ConfigMap: ingress-nginx-config
-#
-# Difficulty: medium
+# Ingress Controller TLS Session Timeout Fix
 # ============================================================
 
 name: Ingress-Controller-TLS-Termination
 difficulty: medium
 
 description: |
-  The Deployment `ingress-controller` in namespace
-  `default` depends on a ConfigMap named
-  `ingress-nginx-config`.
+  A Kubernetes Deployment named `ingress-controller`
+  is running in the `default` namespace.
 
-  The ConfigMap currently contains:
+  It uses a ConfigMap `ingress-nginx-config`
+  that contains an invalid value:
 
       ssl-session-timeout: "0"
 
-  This is not a valid nginx duration.
+  This must be corrected.
 
 instructions: |
   Update the ConfigMap so that:
 
-  - `ssl-session-timeout` is set to a valid,
-    non-zero nginx duration (for example: 10m, 1h, 30s).
+  - ssl-session-timeout is a valid non-zero nginx duration
+    (e.g., 10m, 1h, 30s).
 
-  Do NOT:
-  - Delete or recreate the Deployment.
-  - Change the container image.
-  - Modify memory limits.
+  You must:
 
-  Ensure:
-  - Deployment UID remains unchanged.
-  - Deployment remains Available.
-  - Service continues returning HTTP 200.
+  - NOT delete or recreate the Deployment.
+  - Preserve Deployment UID.
+  - Preserve image: nginx:1.25.3.
+  - Preserve memory limit: 128Mi.
+  - Ensure Deployment remains Available.
+  - Ensure Service returns HTTP 200.
 
 success_criteria:
-  - ConfigMap contains valid non-zero nginx duration.
+  - Valid non-zero nginx duration.
   - Deployment UID unchanged.
-  - Image remains nginx:1.25.3.
-  - Memory limit remains 128Mi.
+  - Image unchanged.
+  - Memory unchanged.
   - Deployment Available.
-  - HTTP 200 response confirmed.
-
-tags:
-  - kubernetes
-  - configmap
-  - deployment
-  - nginx
-  - debugging
+  - HTTP 200 returned.
