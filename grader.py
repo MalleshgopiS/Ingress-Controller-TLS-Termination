@@ -1,18 +1,17 @@
 # ============================================================
 # grader.py
 #
-# Validates the following:
-#
-# 1. Deployment UID is preserved
-# 2. Container image remains nginx:1.25.3
+# Validates:
+# 1. Deployment UID preserved
+# 2. Image remains nginx:1.25.3
 # 3. Memory limit remains 128Mi
-# 4. ConfigMap ssl-session-timeout is a valid non-zero nginx duration
-# 5. Deployment becomes Available (availableReplicas == 1)
+# 4. ssl-session-timeout is valid non-zero nginx duration
+# 5. Deployment becomes Available
 # 6. Service returns HTTP 200
 #
 # Returns:
-#   1.0 if all checks pass
-#   0.0 otherwise
+#   {"score": 1.0}
+#   {"score": 0.0}
 # ============================================================
 
 import subprocess
@@ -25,15 +24,10 @@ CONFIGMAP = "ingress-nginx-config"
 
 
 def run(cmd):
-    """Run shell command and return stripped output."""
     return subprocess.check_output(cmd, shell=True).decode().strip()
 
 
 def wait_for_available(timeout_seconds=120):
-    """
-    Wait until Deployment has availableReplicas == 1.
-    Nebula snapshot mode may delay scheduling, so we retry.
-    """
     start = time.time()
     while time.time() - start < timeout_seconds:
         try:
@@ -53,10 +47,6 @@ def wait_for_available(timeout_seconds=120):
 
 
 def wait_for_http(timeout_seconds=60):
-    """
-    Port-forward the service and verify HTTP 200 response.
-    Retries until timeout.
-    """
     pf = subprocess.Popen(
         f"kubectl port-forward svc/{DEPLOYMENT} 18080:80 -n {NAMESPACE}",
         shell=True,
@@ -64,7 +54,7 @@ def wait_for_http(timeout_seconds=60):
         stderr=subprocess.DEVNULL,
     )
 
-    time.sleep(5)  # allow port-forward to initialize
+    time.sleep(5)
 
     try:
         start = time.time()
@@ -87,10 +77,12 @@ def wait_for_http(timeout_seconds=60):
         pf.terminate()
 
 
-def grade():
+# 🔥 IMPORTANT: Must accept 1 positional argument in Apex
+def grade(task=None):
+
     try:
         # --------------------------------------------------------
-        # 1️⃣ Check Deployment UID preserved
+        # 1️⃣ UID preserved
         # --------------------------------------------------------
         original_uid = open("/grader/original_uid").read().strip()
 
@@ -100,11 +92,10 @@ def grade():
         ).strip("'")
 
         if original_uid != current_uid:
-            print(0.0)
-            return
+            return {"score": 0.0}
 
         # --------------------------------------------------------
-        # 2️⃣ Check container image preserved
+        # 2️⃣ Image preserved
         # --------------------------------------------------------
         image = run(
             f"kubectl get deployment {DEPLOYMENT} -n {NAMESPACE} "
@@ -112,11 +103,10 @@ def grade():
         ).strip("'")
 
         if image != "nginx:1.25.3":
-            print(0.0)
-            return
+            return {"score": 0.0}
 
         # --------------------------------------------------------
-        # 3️⃣ Check memory limit preserved
+        # 3️⃣ Memory preserved
         # --------------------------------------------------------
         memory = run(
             f"kubectl get deployment {DEPLOYMENT} -n {NAMESPACE} "
@@ -124,12 +114,10 @@ def grade():
         ).strip("'")
 
         if memory != "128Mi":
-            print(0.0)
-            return
+            return {"score": 0.0}
 
         # --------------------------------------------------------
-        # 4️⃣ Validate ssl-session-timeout format
-        # Must match nginx duration pattern and be non-zero
+        # 4️⃣ Timeout format valid
         # --------------------------------------------------------
         timeout_value = run(
             f"kubectl get configmap {CONFIGMAP} -n {NAMESPACE} "
@@ -137,29 +125,21 @@ def grade():
         ).strip("'")
 
         if not re.fullmatch(r"[1-9][0-9]*(s|m|h|d|w|M|y)", timeout_value):
-            print(0.0)
-            return
+            return {"score": 0.0}
 
         # --------------------------------------------------------
-        # 5️⃣ Wait for Deployment availability
+        # 5️⃣ Wait for availability
         # --------------------------------------------------------
         if not wait_for_available():
-            print(0.0)
-            return
+            return {"score": 0.0}
 
         # --------------------------------------------------------
-        # 6️⃣ Verify HTTP 200 response
+        # 6️⃣ HTTP check
         # --------------------------------------------------------
         if not wait_for_http():
-            print(0.0)
-            return
+            return {"score": 0.0}
 
-        # All checks passed
-        print(1.0)
+        return {"score": 1.0}
 
     except Exception:
-        print(0.0)
-
-
-if __name__ == "__main__":
-    grade()
+        return {"score": 0.0}
