@@ -3,11 +3,8 @@ FROM us-central1-docker.pkg.dev/bespokelabs/nebula-devops-registry/nebula-devops
 USER root
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends jq=1.6-2.1 && \
+    apt-get install -y --no-install-recommends jq=1.6-2ubuntu0.1 && \
     rm -rf /var/lib/apt/lists/*
-
-# Preload nginx image used by the task
-RUN crictl pull docker.io/library/nginx:alpine || true
 
 RUN mkdir -p /grader
 
