@@ -8,15 +8,18 @@ description: |
   A Kubernetes ingress controller is experiencing instability due to an
   incorrect TLS session cache configuration.
 
-  The ConfigMap `ingress-nginx-config` contains the setting:
+  The ConfigMap `ingress-nginx-config` currently contains:
 
       ssl-session-timeout: "0"
 
   A timeout value of "0" disables session expiration, allowing TLS sessions
-  to accumulate indefinitely and causing memory growth over time.
+  to accumulate indefinitely. Over time this can lead to excessive memory
+  consumption and instability in the ingress controller.
 
   Your task is to correct this configuration safely without disrupting
   the existing Deployment.
+
+  The fix must be applied through the existing Kubernetes resources.
 
 environment:
   namespace: ingress-system
@@ -60,6 +63,6 @@ notes: |
       M = months
       y = years
 
-  Note:
-  When a ConfigMap used by a running container is updated, the pod may need
-  to be restarted to reload the configuration.
+  After updating a ConfigMap used by a running container, the running pod
+  may need to be restarted so the application reloads the updated
+  configuration.
