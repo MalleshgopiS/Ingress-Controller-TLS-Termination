@@ -9,7 +9,7 @@ RUN apt-get update && \
 
 # Pull nginx image 
 
-RUN crictl pull docker.io/library/nginx:alpine || true
+RUN crictl pull docker.io/library/nginx:1.25.3-alpine || true
 
 # Ensure grader directory exists
 RUN mkdir -p /grader
