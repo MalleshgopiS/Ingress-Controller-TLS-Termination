@@ -2,12 +2,13 @@ FROM us-central1-docker.pkg.dev/bespokelabs/nebula-devops-registry/nebula-devops
 
 USER root
 
-# Install jq with pinned version
+# Install jq with pinned version for reproducibility
 RUN apt-get update && \
     apt-get install -y --no-install-recommends jq=1.6-2.1 && \
     rm -rf /var/lib/apt/lists/*
 
-# Preload nginx image for offline Kubernetes usage
+# Preload nginx image used by the task
+# NOTE: Deployment intentionally uses nginx:alpine because the grader verifies it
 RUN crictl pull docker.io/library/nginx:alpine || true
 
 # Ensure grader directory exists

@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# This script initializes the Kubernetes environment
+# and saves the original deployment UID used by the grader.
+
 NS="ingress-system"
 
 echo "Creating namespace..."
@@ -106,26 +109,16 @@ spec:
 EOF
 
 ############################################
-# WAIT FOR POD RUNNING
+# Wait for pod
 ############################################
-echo "Waiting for pod to reach Running state..."
 
-for i in {1..60}; do
-  STATUS=$(kubectl get pods -n $NS -l app=ingress-controller \
-    -o jsonpath='{.items[0].status.phase}' 2>/dev/null || echo "")
+echo "Waiting for pod..."
 
-  if [[ "$STATUS" == "Running" ]]; then
-    echo "Pod is running."
-    break
-  fi
-
-  sleep 2
-done
+kubectl rollout status deployment ingress-controller -n $NS --timeout=180s
 
 ############################################
-# SAVE ORIGINAL UID
+# Save UID for grader validation
 ############################################
-echo "Saving original UID..."
 
 mkdir -p /grader
 

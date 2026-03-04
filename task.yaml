@@ -59,3 +59,7 @@ notes: |
       w = weeks
       M = months
       y = years
+
+  Note:
+  When a ConfigMap used by a running container is updated, the pod may need
+  to be restarted to reload the configuration.
