@@ -6,7 +6,7 @@ This grader validates:
 
 1. Deployment UID is preserved (no recreation)
 2. Memory limit remains exactly 128Mi
-3. Container image remains nginx:1.25.3
+3. Container image remains nginx:alpine
 4. ssl-session-timeout is a valid non-zero nginx duration
 5. Deployment becomes Ready
 6. Nginx serves HTTP 200 responses
@@ -118,7 +118,7 @@ def grade(task_dir=None):
         "-o jsonpath='{.spec.template.spec.containers[0].image}'"
     )
 
-    subscores["image_preserved"] = image == "nginx:1.25.3"
+    subscores["image_preserved"] = image == "nginx:alpine"
     weights["image_preserved"] = 1.0
 
     # --------------------------------------------------
