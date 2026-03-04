@@ -1,61 +1,55 @@
-name: ingress-controller-configmap-fix
+name: ingress-nginx-config-fix
+author: apex
+version: 1
+
+description: >
+  Fix the nginx keepalive timeout configuration stored in a ConfigMap
+  without modifying the Deployment specification.
+
 category: kubernetes
 difficulty: medium
 
+tags:
+  - kubernetes
+  - nginx
+  - configmap
+  - debugging
+
+estimated_duration: 10
+max_agent_steps: 25
+timeout: 600
+
 prompt: |
-  The Kubernetes cluster contains an ingress controller running in the
-  `ingress-system` namespace.
+  A Kubernetes cluster is running an nginx deployment in the namespace
+  `ingress-system`.
 
-  A ConfigMap named `ingress-nginx-config` is incorrectly configured.
-  The value of `ssl-session-timeout` is currently set to `"0"` which
-  disables session expiration and causes issues with TLS session caching.
+  The nginx configuration is controlled by a ConfigMap named
+  `ingress-nginx-config`.
 
-  Your task is to fix the configuration.
+  Currently the keepalive timeout value inside the ConfigMap is invalid,
+  causing nginx to behave incorrectly.
 
-  Environment:
-
-  • Namespace: ingress-system  
-  • Deployment: ingress-controller  
-  • ConfigMap: ingress-nginx-config  
-  • Service: ingress-controller  
-
-  Objectives:
-
-  1. Update the ConfigMap `ingress-nginx-config` in namespace `ingress-system`.
-  2. Set the key `ssl-session-timeout` to a **valid non-zero nginx duration**  
-     (for example: `10s`, `5m`, `1h`, etc).
+  Your task is to fix the configuration so nginx runs with a valid
+  keepalive timeout.
 
   Constraints:
+  - Do NOT modify the Deployment spec.
+  - Do NOT change the container image.
+  - Do NOT modify memory limits.
+  - Only update the ConfigMap configuration.
+  - Ensure nginx returns HTTP 200 after the fix.
 
-  • The deployment **must NOT be deleted or recreated**.  
-  • The **deployment UID must remain unchanged**.  
-  • The container image **must remain `nginx:alpine`**.  
-  • The container **memory limit must remain `128Mi`**.  
-  • Only the ConfigMap configuration should be modified.
+instructions: |
+  Investigate the ConfigMap controlling nginx configuration.
 
-  Notes:
+  Identify the incorrect keepalive timeout value and update it to a
+  valid value.
 
-  • After modifying a ConfigMap used by a running pod, the pod may need to
-    restart to reload the configuration.
-  • Valid nginx duration examples:
-      - 10s
-      - 5m
-      - 1h
-      - 1d
+  After updating the ConfigMap, ensure the nginx pod reloads the new
+  configuration.
 
-  Success Criteria:
-
-  • The ConfigMap contains a valid non-zero `ssl-session-timeout`.
-  • The deployment remains ready with 1 running replica.
-  • nginx continues to serve HTTP requests with status code **200**.
-  • Container restart count stabilizes after the fix.
+  The deployment configuration must remain unchanged.
 
 setup_script: setup.sh
 solution_script: solution.sh
 grader_script: grader.py
-
-tags:
-  - kubernetes
-  - configmap
-  - debugging
-  - devops
