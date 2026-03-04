@@ -30,7 +30,7 @@ objectives:
 constraints:
   - Do NOT delete or recreate the Deployment.
   - The Deployment UID must remain unchanged.
-  - The container image must remain `nginx:1.25.3`.
+  - The container image must remain `nginx:alpine`.
   - The memory limit must remain exactly `128Mi`.
 
 success_criteria:

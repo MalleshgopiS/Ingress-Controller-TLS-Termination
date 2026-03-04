@@ -7,6 +7,10 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends jq=1.6* && \
     rm -rf /var/lib/apt/lists/*
 
+# Pull nginx image 
+
+RUN crictl pull docker.io/library/nginx:alpine || true
+
 # Ensure grader directory exists
 RUN mkdir -p /grader
 
