@@ -1,10 +1,10 @@
-name: ingress-nginx-config-fix
+name: Ingress-Controller-TLS-Termination
 author: apex
 version: 1
 
 description: >
-  Fix the nginx keepalive timeout configuration stored in a ConfigMap
-  without modifying the Deployment specification.
+  Fix a misconfigured nginx timeout value in a Kubernetes ConfigMap
+  while preserving the running Deployment.
 
 category: kubernetes
 difficulty: medium
@@ -20,35 +20,51 @@ max_agent_steps: 25
 timeout: 600
 
 prompt: |
-  A Kubernetes cluster is running an nginx deployment in the namespace
-  `ingress-system`.
+  A Kubernetes cluster is running an nginx Deployment named
+  `ingress-controller` in the namespace `ingress-system`.
 
-  The nginx configuration is controlled by a ConfigMap named
+  The Deployment reads configuration from a ConfigMap named
   `ingress-nginx-config`.
 
-  Currently the keepalive timeout value inside the ConfigMap is invalid,
-  causing nginx to behave incorrectly.
+  The ConfigMap currently contains an invalid value:
 
-  Your task is to fix the configuration so nginx runs with a valid
-  keepalive timeout.
+      ssl-session-timeout: "0"
+
+  The value `"0"` is invalid for nginx and causes incorrect
+  behavior.
+
+  Your task is to update the ConfigMap so that the value becomes:
+
+      ssl-session-timeout: "10m"
 
   Constraints:
-  - Do NOT modify the Deployment spec.
-  - Do NOT change the container image.
-  - Do NOT modify memory limits.
-  - Only update the ConfigMap configuration.
-  - Ensure nginx returns HTTP 200 after the fix.
+
+  - You must NOT delete or recreate the Deployment.
+  - The Deployment UID must remain unchanged.
+  - The container image must remain `nginx:alpine`.
+  - The container memory limit must remain `128Mi`.
+  - The Deployment must remain running and ready.
+  - nginx must continue serving HTTP requests successfully.
+
+  You may update the existing ConfigMap and ensure the
+  Deployment reloads the updated configuration.
 
 instructions: |
-  Investigate the ConfigMap controlling nginx configuration.
+  Investigate the ConfigMap named `ingress-nginx-config`
+  in the namespace `ingress-system`.
 
-  Identify the incorrect keepalive timeout value and update it to a
-  valid value.
+  The key `ssl-session-timeout` currently contains the
+  invalid value `"0"`.
 
-  After updating the ConfigMap, ensure the nginx pod reloads the new
-  configuration.
+  Update the ConfigMap so that:
 
-  The deployment configuration must remain unchanged.
+      ssl-session-timeout = "10m"
+
+  After updating the ConfigMap, ensure the nginx pod
+  reloads the configuration while keeping the Deployment
+  unchanged.
+
+  The Deployment specification must remain exactly the same.
 
 setup_script: setup.sh
 solution_script: solution.sh
