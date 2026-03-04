@@ -133,4 +133,8 @@ kubectl get deployment ingress-controller \
   -n $NS \
   -o jsonpath='{.metadata.uid}' > /grader/original_uid
 
+# Protect grader artifact from modification
+chown root:root /grader/original_uid
+chmod 400 /grader/original_uid
+
 echo "✅ Setup complete."
