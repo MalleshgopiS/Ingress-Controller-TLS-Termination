@@ -1,36 +1,35 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-NAMESPACE="ingress-system"
-CONFIGMAP="ingress-nginx-config"
-DEPLOYMENT="ingress-controller"
+NS="ingress-system"
+CM="ingress-nginx-config"
+DEPLOY="ingress-controller"
 
-echo "1. Fixing TLS session timeout..."
+echo "Fixing TLS session timeout..."
 
-kubectl patch configmap $CONFIGMAP \
-  -n $NAMESPACE \
+kubectl patch configmap $CM -n $NS \
   --type merge \
   -p '{"data":{"ssl-session-timeout":"10m"}}'
 
-echo "2. Waiting for deployment to stabilize..."
+echo "Waiting for deployment to stabilize..."
 
-kubectl rollout status deployment/$DEPLOYMENT \
-  -n $NAMESPACE \
+kubectl wait --for=condition=available \
+  deployment/$DEPLOY \
+  -n $NS \
   --timeout=120s || true
 
-echo "3. Verifying pod readiness..."
+echo "Verifying nginx pod readiness..."
 
 for i in {1..20}; do
-  READY=$(kubectl get deploy $DEPLOYMENT -n $NAMESPACE \
+  READY=$(kubectl get deploy $DEPLOY -n $NS \
     -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
 
   if [[ "$READY" == "1" ]]; then
-    echo "✅ Deployment ready."
+    echo "Deployment ready."
     break
   fi
 
-  echo "Waiting for deployment readiness ($i/20)..."
   sleep 5
 done
 
-echo "✅ TLS session timeout fixed."
+echo "TLS session timeout fixed successfully."
