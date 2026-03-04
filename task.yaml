@@ -1,68 +1,37 @@
-id: ingress-controller-tls-termination
+name: ingress-controller-configmap-fix
+category: kubernetes
+difficulty: medium
 
-title: Fix TLS Session Timeout Misconfiguration in Ingress Controller
+prompt: |
+  The Kubernetes cluster contains an ingress controller running in the
+  `ingress-system` namespace.
 
-difficulty: hard
+  A ConfigMap named `ingress-nginx-config` is incorrectly configured.
+  The value of `ssl-session-timeout` is set to `"0"` which breaks
+  expected behavior.
 
-description: |
-  A Kubernetes ingress controller is experiencing instability due to an
-  incorrect TLS session cache configuration.
+  Your task is to fix the configuration so that:
 
-  The ConfigMap `ingress-nginx-config` currently contains:
+  1. The ConfigMap `ingress-nginx-config` in namespace `ingress-system`
+     has `ssl-session-timeout` set to `"10m"`.
 
-      ssl-session-timeout: "0"
+  2. The existing deployment `ingress-controller` must remain running.
 
-  A timeout value of "0" disables session expiration, allowing TLS sessions
-  to accumulate indefinitely. Over time this can lead to excessive memory
-  consumption and instability in the ingress controller.
+  3. You must NOT delete or recreate the deployment.
 
-  Your task is to correct this configuration safely without disrupting
-  the existing Deployment.
+  4. Only update the existing ConfigMap.
 
-  The fix must be applied through the existing Kubernetes resources.
+  5. The deployment UID must remain unchanged.
 
-environment:
-  namespace: ingress-system
-  deployment: ingress-controller
-  configmap: ingress-nginx-config
+  After fixing the ConfigMap, the cluster should continue operating
+  normally and the ingress controller should remain available.
 
-objectives:
-  - Update the ConfigMap `ingress-nginx-config`.
-  - Set `ssl-session-timeout` to a valid non-zero nginx duration.
+setup_script: setup.sh
+solution_script: solution.sh
+grader_script: grader.py
 
-constraints:
-  - Do NOT delete or recreate the Deployment.
-  - The Deployment UID must remain unchanged.
-  - The container image must remain `nginx:alpine`.
-  - The memory limit must remain exactly `128Mi`.
-
-success_criteria:
-  - Deployment becomes Ready.
-  - nginx serves HTTP 200 responses.
-  - Container restart count remains stable.
-  - ssl-session-timeout is a valid non-zero nginx duration.
-
-notes: |
-  Valid nginx duration examples include:
-
-      10s
-      5m
-      1h
-      1d
-
-  Format:
-
-      <positive_integer><unit>
-
-  Supported units:
-      s = seconds
-      m = minutes
-      h = hours
-      d = days
-      w = weeks
-      M = months
-      y = years
-
-  After updating a ConfigMap used by a running container, the running pod
-  may need to be restarted so the application reloads the updated
-  configuration.
+tags:
+  - kubernetes
+  - configmap
+  - debugging
+  - devops

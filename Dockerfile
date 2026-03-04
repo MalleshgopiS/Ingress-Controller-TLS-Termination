@@ -4,7 +4,7 @@ USER root
 
 # Install jq (reproducible but repo-compatible pin)
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends jq=1.6-2ubuntu0.2 && \
+    apt-get install -y --no-install-recommends jq=1.6* && \
     rm -rf /var/lib/apt/lists/*
 
 # Ensure grader directory exists
