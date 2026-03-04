@@ -7,24 +7,48 @@ prompt: |
   `ingress-system` namespace.
 
   A ConfigMap named `ingress-nginx-config` is incorrectly configured.
-  The value of `ssl-session-timeout` is set to `"0"` which breaks
-  expected behavior.
+  The value of `ssl-session-timeout` is currently set to `"0"` which
+  disables session expiration and causes issues with TLS session caching.
 
-  Your task is to fix the configuration so that:
+  Your task is to fix the configuration.
 
-  1. The ConfigMap `ingress-nginx-config` in namespace `ingress-system`
-     has `ssl-session-timeout` set to `"10m"`.
+  Environment:
 
-  2. The existing deployment `ingress-controller` must remain running.
+  • Namespace: ingress-system  
+  • Deployment: ingress-controller  
+  • ConfigMap: ingress-nginx-config  
+  • Service: ingress-controller  
 
-  3. You must NOT delete or recreate the deployment.
+  Objectives:
 
-  4. Only update the existing ConfigMap.
+  1. Update the ConfigMap `ingress-nginx-config` in namespace `ingress-system`.
+  2. Set the key `ssl-session-timeout` to a **valid non-zero nginx duration**  
+     (for example: `10s`, `5m`, `1h`, etc).
 
-  5. The deployment UID must remain unchanged.
+  Constraints:
 
-  After fixing the ConfigMap, the cluster should continue operating
-  normally and the ingress controller should remain available.
+  • The deployment **must NOT be deleted or recreated**.  
+  • The **deployment UID must remain unchanged**.  
+  • The container image **must remain `nginx:alpine`**.  
+  • The container **memory limit must remain `128Mi`**.  
+  • Only the ConfigMap configuration should be modified.
+
+  Notes:
+
+  • After modifying a ConfigMap used by a running pod, the pod may need to
+    restart to reload the configuration.
+  • Valid nginx duration examples:
+      - 10s
+      - 5m
+      - 1h
+      - 1d
+
+  Success Criteria:
+
+  • The ConfigMap contains a valid non-zero `ssl-session-timeout`.
+  • The deployment remains ready with 1 running replica.
+  • nginx continues to serve HTTP requests with status code **200**.
+  • Container restart count stabilizes after the fix.
 
 setup_script: setup.sh
 solution_script: solution.sh
