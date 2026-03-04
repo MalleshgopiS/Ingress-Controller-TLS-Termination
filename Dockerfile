@@ -3,7 +3,7 @@ FROM us-central1-docker.pkg.dev/bespokelabs/nebula-devops-registry/nebula-devops
 USER root
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends jq=1.6-2ubuntu0.1 && \
+    apt-get install -y --no-install-recommends jq=1.6* && \
     rm -rf /var/lib/apt/lists/*
 
 RUN mkdir -p /grader
